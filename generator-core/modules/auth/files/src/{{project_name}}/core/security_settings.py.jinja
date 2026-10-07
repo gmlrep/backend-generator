@@ -1,0 +1,54 @@
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+
+INSECURE_DEFAULT = "change-me-in-production"
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class SecuritySettings(BaseSettings):
+    """JWT settings owned by the auth module.
+
+    By default an HMAC secret (``HS256``) is used. Asymmetric algorithms
+    (``RS*``/``ES*``/``PS*``) are supported as well and then read the key files.
+    """
+
+    model_config = _ENV_CONFIG
+
+    JWT_SECRET: str = Field(default=INSECURE_DEFAULT, validation_alias="JWT_SECRET")
+    JWT_ALGORITHM: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
+    JWT_EXPIRES_MINUTES: int = Field(default=30, validation_alias="JWT_EXPIRES_MINUTES")
+
+    JWT_PRIVATE_KEY_PATH: Path = Field(
+        default=ROOT_DIR / "certs" / "jwt-private.pem", validation_alias="JWT_PRIVATE_KEY_PATH"
+    )
+    JWT_PUBLIC_KEY_PATH: Path = Field(
+        default=ROOT_DIR / "certs" / "jwt-public.pem", validation_alias="JWT_PUBLIC_KEY_PATH"
+    )
+
+    @property
+    def uses_asymmetric_keys(self) -> bool:
+        return self.JWT_ALGORITHM.upper().startswith(("RS", "ES", "PS"))
+
+    @property
+    def is_secure(self) -> bool:
+        if self.JWT_SECRET in ("", INSECURE_DEFAULT):
+            return False
+        if self.uses_asymmetric_keys:
+            return self.JWT_PRIVATE_KEY_PATH.is_file() and self.JWT_PUBLIC_KEY_PATH.is_file()
+        return len(self.JWT_SECRET) >= 32
+
+    def get_signing_key(self) -> str:
+        if self.uses_asymmetric_keys:
+            return self.JWT_PRIVATE_KEY_PATH.read_text()
+        return self.JWT_SECRET
+
+    def get_verification_key(self) -> str:
+        if self.uses_asymmetric_keys:
+            return self.JWT_PUBLIC_KEY_PATH.read_text()
+        return self.JWT_SECRET

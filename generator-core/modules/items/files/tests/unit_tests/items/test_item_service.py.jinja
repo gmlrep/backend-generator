@@ -1,0 +1,39 @@
+from {{project_name}}.model.item import Item as ItemModel
+from {{project_name}}.schema.item import ItemCreate
+from {{project_name}}.services.item import ItemService
+
+
+class _FakeItemRepository:
+    def __init__(self) -> None:
+        self.items: list[ItemModel] = []
+        self._next_id = 1
+
+    async def create(self, model: ItemModel) -> ItemModel:
+        model.id = self._next_id
+        self._next_id += 1
+        self.items.append(model)
+        return model
+
+    async def read_by_options(self, schema) -> dict:
+        return {"founds": list(self.items)}
+
+
+async def test_create_item() -> None:
+    service = ItemService(_FakeItemRepository())
+
+    item = await service.create(ItemCreate(name="Widget", description="A widget", price=9.99))
+
+    assert item.id == 1
+    assert item.name == "Widget"
+    assert item.description == "A widget"
+    assert item.price == 9.99
+
+
+async def test_list_all_items() -> None:
+    service = ItemService(_FakeItemRepository())
+    await service.create(ItemCreate(name="A", price=1.0))
+    await service.create(ItemCreate(name="B", price=2.0))
+
+    items = await service.list_all()
+
+    assert [item.name for item in items] == ["A", "B"]

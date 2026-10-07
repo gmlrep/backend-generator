@@ -1,0 +1,20 @@
+# ruff: noqa: E402, I001
+
+from dependency_injector import containers, providers
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.database import Database
+
+# EXTENSION_CONTAINER_IMPORTS
+
+
+class Container(containers.DeclarativeContainer):
+    wiring_config = containers.WiringConfiguration(
+        modules=[
+            # EXTENSION_CONTAINER_WIRING
+        ]
+    )
+
+    db = providers.Singleton(Database, db_url=settings.database.db_url)
+
+    # EXTENSION_CONTAINER_SERVICES

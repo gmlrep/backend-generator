@@ -1,0 +1,68 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import jwt
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pwdlib import PasswordHash
+from pwdlib.hashers.bcrypt import BcryptHasher
+from starlette.concurrency import run_in_threadpool
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.exceptions import AuthError
+
+password_hash = PasswordHash([BcryptHasher()])
+
+
+def create_access_token(subject: dict, expires_delta: timedelta | None = None) -> tuple[str, datetime]:
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.security.JWT_EXPIRES_MINUTES))
+    payload = {"exp": expire, **subject}
+    encoded_jwt = jwt.encode(
+        payload,
+        settings.security.get_signing_key(),
+        algorithm=settings.security.JWT_ALGORITHM,
+    )
+    return encoded_jwt, expire
+
+
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return await run_in_threadpool(password_hash.verify, plain_password, hashed_password)
+
+
+async def get_password_hash(password: str) -> str:
+    return await run_in_threadpool(password_hash.hash, password)
+
+
+def decode_jwt(token: str) -> dict[str, Any]:
+    try:
+        return jwt.decode(
+            token,
+            key=settings.security.get_verification_key(),
+            algorithms=[settings.security.JWT_ALGORITHM],
+        )
+    except jwt.ExpiredSignatureError as e:
+        raise HTTPException(status_code=401, detail="Access token has expired") from e
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail="Incorrect token") from e
+
+
+class JWTBearer(HTTPBearer):
+    def __init__(self, auto_error: bool = True) -> None:
+        super().__init__(auto_error=auto_error)
+
+    async def __call__(self, request: Request) -> str | None:  # type: ignore[override]
+        credentials: HTTPAuthorizationCredentials | None = await super().__call__(request)
+        if not credentials:
+            raise AuthError(detail="Invalid authorization code")
+        if credentials.scheme != "Bearer":
+            raise AuthError(detail="Invalid authentication scheme")
+        if not self.verify_jwt(credentials.credentials):
+            raise AuthError(detail="Invalid token or expired token")
+        return credentials.credentials
+
+    def verify_jwt(self, jwt_token: str) -> bool:
+        try:
+            payload = decode_jwt(jwt_token)
+        except HTTPException:
+            return False
+        return bool(payload)

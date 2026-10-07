@@ -1,0 +1,11 @@
+# ruff: noqa: E402
+
+from fastapi import APIRouter
+
+routers = APIRouter(prefix="/v1")
+router_list: list[APIRouter] = []
+
+# EXTENSION_ROUTERS
+
+for router in router_list:
+    routers.include_router(router)

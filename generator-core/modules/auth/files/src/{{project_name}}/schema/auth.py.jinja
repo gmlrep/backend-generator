@@ -1,0 +1,28 @@
+from datetime import datetime
+
+from {{project_name}}.schema.base import BaseSchema
+from {{project_name}}.schema.user import User
+
+
+class Payload(BaseSchema):
+    id: int
+    email: str
+    name: str | None = None
+    is_superuser: bool = False
+
+
+class SignIn(BaseSchema):
+    email: str
+    password: str
+
+
+class SignUp(BaseSchema):
+    email: str
+    password: str
+    name: str | None = None
+
+
+class SignInResponse(BaseSchema):
+    access_token: str
+    expiration: datetime
+    user_info: User

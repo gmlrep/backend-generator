@@ -1,0 +1,24 @@
+manifest_version: "1"
+id: items
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies: []
+patches:
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/item_router.py.jinja
+  - target: src/{{project_name}}/model/__init__.py
+    marker: EXTENSION_MODELS
+    fragment: fragments/item_models.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/item_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/item_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/item_container_wiring.py.jinja

@@ -1,0 +1,6 @@
+from {{project_name}}.model.user import User
+from {{project_name}}.repository.base import BaseRepository
+
+
+class UserRepository(BaseRepository[User]):
+    model = User

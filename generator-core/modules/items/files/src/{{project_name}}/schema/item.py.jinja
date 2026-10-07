@@ -1,0 +1,15 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class ItemBase(BaseSchema):
+    name: str
+    description: str | None = None
+    price: float = 0.0
+
+
+class ItemCreate(ItemBase):
+    pass
+
+
+class ItemRead(ItemBase):
+    id: int | None = None

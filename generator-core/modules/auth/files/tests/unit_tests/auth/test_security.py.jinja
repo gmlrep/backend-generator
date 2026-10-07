@@ -1,0 +1,31 @@
+import pytest
+from fastapi import HTTPException
+
+from {{project_name}}.core.security import (
+    create_access_token,
+    decode_jwt,
+    get_password_hash,
+    verify_password,
+)
+
+
+async def test_password_hash_roundtrip() -> None:
+    hashed = await get_password_hash("s3cret")
+
+    assert hashed != "s3cret"
+    assert await verify_password("s3cret", hashed) is True
+    assert await verify_password("wrong", hashed) is False
+
+
+def test_access_token_roundtrip() -> None:
+    token, expires = create_access_token({"sub": "42"})
+    payload = decode_jwt(token)
+
+    assert payload["sub"] == "42"
+    assert "exp" in payload
+    assert expires is not None
+
+
+def test_decode_invalid_token_raises() -> None:
+    with pytest.raises(HTTPException):
+        decode_jwt("not-a-valid-token")

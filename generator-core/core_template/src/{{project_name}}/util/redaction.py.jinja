@@ -1,0 +1,6 @@
+def redact_sensitive(value: str | None, mask: str = "***", visible_tail: int = 4) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= visible_tail:
+        return mask
+    return mask + value[-visible_tail:]

@@ -1,0 +1,46 @@
+manifest_version: "1"
+id: auth
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "pwdlib[bcrypt]>=0.3"
+  - "pyjwt>=2.13"
+  - "python-multipart>=0.0.32"
+env_example:
+  - "JWT_SECRET=change-me-in-production-min-32-chars"
+  - "JWT_ALGORITHM=HS256"
+  - "JWT_EXPIRES_MINUTES=30"
+patches:
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/auth_router.py.jinja
+  - target: src/{{project_name}}/model/__init__.py
+    marker: EXTENSION_MODELS
+    fragment: fragments/auth_models.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/auth_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/auth_config_settings.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_VALIDATION
+    fragment: fragments/auth_config_validation.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/auth_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/auth_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/auth_container_wiring.py.jinja
+  - target: src/{{project_name}}/core/dependencies.py
+    marker: EXTENSION_DEPENDENCIES
+    fragment: fragments/auth_dependencies.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/auth_compose_env.py.jinja

@@ -1,0 +1,27 @@
+from sqlalchemy import select
+
+from {{project_name}}.schema.base import BaseSchema
+
+_SUPPORTED_OPERATORS = {"eq": lambda attr, value: attr == value}
+
+
+def build_query(model, schema: BaseSchema | None):
+    """Build a SELECT statement from a schema with ``field__op`` pairs.
+
+    Supported operators: ``eq`` (also the default when no suffix is given).
+    Unknown fields and operators are ignored so an over-permissive schema can
+    never inject arbitrary SQL.
+    """
+    stmt = select(model)
+    if schema is None:
+        return stmt
+
+    for field_name, value in schema.model_dump(exclude_none=True).items():
+        name, _, operator = field_name.partition("__")
+        operator = operator or "eq"
+        matcher = _SUPPORTED_OPERATORS.get(operator)
+        attr = getattr(model, name, None)
+        if matcher is None or attr is None:
+            continue
+        stmt = stmt.where(matcher(attr, value))
+    return stmt

@@ -1,0 +1,27 @@
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends
+
+from {{project_name}}.core.container import Container
+from {{project_name}}.schema.item import ItemCreate, ItemRead
+from {{project_name}}.services.item import ItemService
+
+router = APIRouter(prefix="/items", tags=["items"])
+
+
+@router.post("", response_model=ItemRead)
+@inject
+async def create_item(
+    payload: ItemCreate,
+    service: Annotated[ItemService, Depends(Provide[Container.item_service])],
+) -> ItemRead:
+    return await service.create(payload)
+
+
+@router.get("", response_model=list[ItemRead])
+@inject
+async def list_items(
+    service: Annotated[ItemService, Depends(Provide[Container.item_service])],
+) -> list[ItemRead]:
+    return await service.list_all()

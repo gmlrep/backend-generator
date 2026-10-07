@@ -1,0 +1,43 @@
+stages:
+  - lint
+  - test
+  - build
+
+default:
+  image: python:3.12-slim
+  before_script:
+    - pip install --quiet uv
+
+lint:
+  stage: lint
+  script:
+    - uv sync --all-groups
+    - uv run ruff check .
+    - uv run ruff format --check .
+    - uv run mypy src
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "{{ main_branch }}"
+
+test:
+  stage: test
+  script:
+    - uv sync --all-groups
+    - uv run pytest -q
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "{{ main_branch }}"
+
+build:
+  stage: build
+  image: docker:cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script: []
+  script:
+    - docker build -t {{ project_name }}:ci .
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{ main_branch }}"

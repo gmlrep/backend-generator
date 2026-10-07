@@ -1,0 +1,16 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from loguru import logger
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    logger.info("Server has been started")
+    yield
+    database = getattr(app.state, "db", None)
+    if database is not None:
+        await database.dispose()
+        logger.info("Database connections disposed")
+    logger.info("Server has been stopped")

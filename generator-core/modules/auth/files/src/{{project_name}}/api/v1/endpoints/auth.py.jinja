@@ -1,0 +1,35 @@
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends
+
+from {{project_name}}.core.container import Container
+from {{project_name}}.core.dependencies import get_current_active_user
+from {{project_name}}.schema.auth import SignIn, SignInResponse, SignUp
+from {{project_name}}.schema.user import User
+from {{project_name}}.services.auth import AuthService
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/sign-in", response_model=SignInResponse)
+@inject
+async def sign_in(
+    user_info: SignIn,
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> SignInResponse:
+    return await service.sign_in(user_info)
+
+
+@router.post("/sign-up", response_model=User)
+@inject
+async def sign_up(
+    user_info: SignUp,
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> User:
+    return await service.sign_up(user_info)
+
+
+@router.get("/me", response_model=User)
+async def get_me(current_user: Annotated[User, Depends(get_current_active_user)]) -> User:
+    return current_user

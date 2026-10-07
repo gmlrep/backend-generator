@@ -1,0 +1,37 @@
+services:
+  api:
+    build: .
+    # Load the generated .env (created from .env.example at scaffold time).
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-9000}:${API_PORT:-9000}"
+    environment:
+      # Network-only overrides on top of .env
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      # EXTENSION_COMPOSE_ENV
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

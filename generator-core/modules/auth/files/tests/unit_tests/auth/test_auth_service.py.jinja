@@ -1,0 +1,76 @@
+from datetime import UTC, datetime
+
+import pytest
+
+from {{project_name}}.core.exceptions import AuthError
+from {{project_name}}.core.security import get_password_hash
+from {{project_name}}.model.user import User as UserModel
+from {{project_name}}.schema.auth import SignIn, SignUp
+from {{project_name}}.services.auth import AuthService
+
+
+def _user(password: str) -> UserModel:
+    user = UserModel(
+        email="user@test.io",
+        password=password,
+        user_token="tok",
+        name="User",
+        is_active=True,
+        is_superuser=False,
+    )
+    user.id = 1
+    now = datetime.now(UTC)
+    user.created_at = now
+    user.updated_at = now
+    return user
+
+
+class _FakeUserRepository:
+    def __init__(self, found: UserModel | None = None) -> None:
+        self.found = found
+        self.created: UserModel | None = None
+
+    async def read_by_options(self, schema) -> dict:
+        return {"founds": [self.found] if self.found else []}
+
+    async def create(self, model: UserModel) -> UserModel:
+        self.created = model
+        model.id = 1
+        return model
+
+
+async def test_sign_in_success() -> None:
+    hashed = await get_password_hash("plain")
+    service = AuthService(_FakeUserRepository(found=_user(hashed)))
+
+    result = await service.sign_in(SignIn(email="user@test.io", password="plain"))
+
+    assert result.access_token
+    assert result.user_info.email == "user@test.io"
+
+
+async def test_sign_in_wrong_password() -> None:
+    hashed = await get_password_hash("plain")
+    service = AuthService(_FakeUserRepository(found=_user(hashed)))
+
+    with pytest.raises(AuthError):
+        await service.sign_in(SignIn(email="user@test.io", password="nope"))
+
+
+async def test_sign_in_unknown_user() -> None:
+    service = AuthService(_FakeUserRepository(found=None))
+
+    with pytest.raises(AuthError):
+        await service.sign_in(SignIn(email="nobody@test.io", password="x"))
+
+
+async def test_sign_up_hashes_password_and_sets_token() -> None:
+    repository = _FakeUserRepository()
+    service = AuthService(repository)
+
+    created = await service.sign_up(SignUp(email="new@test.io", password="plain", name="New"))
+
+    assert repository.created is not None
+    assert repository.created.password != "plain"
+    assert repository.created.user_token
+    assert created.email == "new@test.io"

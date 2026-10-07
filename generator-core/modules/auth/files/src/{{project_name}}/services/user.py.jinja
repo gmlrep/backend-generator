@@ -1,0 +1,16 @@
+from {{project_name}}.model.user import User as UserModel
+from {{project_name}}.repository.user import UserRepository
+from {{project_name}}.schema.user import User
+from {{project_name}}.services.base import BaseService
+
+
+class UserService(BaseService):
+    def __init__(self, user_repository: UserRepository) -> None:
+        self.user_repository = user_repository
+        super().__init__(user_repository)
+
+    async def get_by_id(self, user_id: int) -> User | None:
+        model: UserModel | None = await self.user_repository.read_by_id(user_id)
+        if model is None:
+            return None
+        return User.model_validate(model)

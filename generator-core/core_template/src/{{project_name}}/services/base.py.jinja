@@ -1,0 +1,6 @@
+from {{project_name}}.repository.base import BaseRepository
+
+
+class BaseService[RepositoryType: BaseRepository]:
+    def __init__(self, repository: RepositoryType) -> None:
+        self.repository = repository

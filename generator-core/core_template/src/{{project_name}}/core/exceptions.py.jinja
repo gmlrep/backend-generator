@@ -1,0 +1,16 @@
+class AppError(Exception):
+    def __init__(self, detail: str | None = None) -> None:
+        self.detail = detail or "An application error occurred"
+        super().__init__(self.detail)
+
+
+class AuthError(AppError):
+    pass
+
+
+class NotFoundError(AppError):
+    pass
+
+
+class ValidationError(AppError):
+    pass

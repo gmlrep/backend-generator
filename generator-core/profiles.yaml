@@ -1,0 +1,9 @@
+profiles:
+  auth-service:
+    - auth
+  items-service:
+    - items
+  full:
+    - auth
+    - items
+  minimal: []

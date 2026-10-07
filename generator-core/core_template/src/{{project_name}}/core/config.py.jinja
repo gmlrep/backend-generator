@@ -1,0 +1,156 @@
+# ruff: noqa: I001
+
+from typing import Any, Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
+
+# EXTENSION_CONFIG_IMPORTS
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class ServerSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    SERVER_HOST: str = Field(default="0.0.0.0", validation_alias="API_HOST")
+    SERVER_PORT: int = Field(default=9000, validation_alias="API_PORT")
+    SERVER_WORKERS: int | None = Field(default=None, validation_alias="API_WORKERS")
+    TRUSTED_PROXY_IPS: str | None = Field(default=None, validation_alias="FORWARDED_ALLOW_IPS")
+    HEALTHCHECK_TIMEOUT: float = Field(default=3.0, validation_alias="HEALTHCHECK_TIMEOUT")
+
+    DATETIME_FORMAT: str = "%Y-%m-%dT%H:%M:%S"
+
+
+class CorsSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    ALLOWED_ORIGINS: list[str] = Field(default=["*"], validation_alias="CORS_ALLOWED_ORIGINS")
+    ALLOWED_METHODS: list[str] = Field(default=["*"], validation_alias="CORS_ALLOWED_METHODS")
+    ALLOWED_HEADERS: list[str] = Field(default=["*"], validation_alias="CORS_ALLOWED_HEADERS")
+    ALLOW_CREDENTIALS: bool = Field(default=False, validation_alias="CORS_ALLOW_CREDENTIALS")
+
+
+class ApiSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    TITLE: str = Field(default="{{project_name}}", validation_alias="API_TITLE")
+    VERSION: str = Field(default="0.1.0", validation_alias="API_VERSION")
+    SUMMARY: str | None = Field(default="FastAPI microservice", validation_alias="API_SUMMARY")
+    DESCRIPTION: str | None = Field(default=None, validation_alias="API_DESCRIPTION")
+    DEBUG: bool = Field(default=False, validation_alias="API_DEBUG")
+    API_PREFIX: str = Field(default="/api", validation_alias="API_PREFIX")
+
+    DOCS_URL: str | None = Field(default="/docs", validation_alias="DOCS_URL")
+    OPENAPI_URL: str | None = Field(default="/openapi.json", validation_alias="OPENAPI_URL")
+    REDOC_URL: str | None = Field(default="/redoc", validation_alias="REDOC_URL")
+
+    @property
+    def set_backend_app_attributes(self) -> dict[str, Any]:
+        return {
+            "title": self.TITLE,
+            "version": self.VERSION,
+            "debug": self.DEBUG,
+            "summary": self.SUMMARY,
+            "description": self.DESCRIPTION,
+            "docs_url": self.DOCS_URL,
+            "openapi_url": self.OPENAPI_URL,
+            "redoc_url": self.REDOC_URL,
+        }
+
+
+class DbSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    ENVIRONMENT: Literal["local", "dev", "staging", "production", "test"] = Field(
+        default="local", validation_alias="ENVIRONMENT"
+    )
+
+    POSTGRES_USER: str = Field(default="postgres", validation_alias="POSTGRES_USER")
+    POSTGRES_PASSWORD: str = Field(default="postgres", validation_alias="POSTGRES_PASSWORD")
+    POSTGRES_DB: str = Field(default="postgres", validation_alias="POSTGRES_DB")
+    POSTGRES_HOST: str = Field(default="localhost", validation_alias="POSTGRES_HOST")
+    POSTGRES_PORT: int = Field(default=5432, validation_alias="POSTGRES_PORT")
+
+    POSTGRES_TEST_DB: str = Field(default="test_postgres", validation_alias="POSTGRES_TEST_DB")
+
+    # Full SQLAlchemy URL override (e.g. an in-memory SQLite database in tests).
+    DATABASE_URL: str | None = Field(default=None, validation_alias="DATABASE_URL")
+
+    echo: bool = Field(default=False, validation_alias="DB_ECHO")
+    POOL_SIZE: int = Field(default=10, validation_alias="DB_POOL_SIZE")
+    POOL_OVERFLOW: int = Field(default=20, validation_alias="DB_MAX_OVERFLOW")
+    POOL_TIMEOUT: int = Field(default=30, validation_alias="DB_POOL_TIMEOUT")
+
+    PAGE: int = Field(default=1, validation_alias="PAGE")
+    PAGE_SIZE: int = Field(default=20, validation_alias="PAGE_SIZE")
+    ORDERING: str = Field(default="-id", validation_alias="ORDERING")
+
+    @property
+    def db_name(self) -> str:
+        if self.ENVIRONMENT == "test":
+            return self.POSTGRES_TEST_DB
+        return self.POSTGRES_DB
+
+    @property
+    def db_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_HOST,
+            port=self.POSTGRES_PORT,
+            database=self.db_name,
+        ).render_as_string(hide_password=False)
+
+
+class LoguruSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    format: str = Field(
+        default=(
+            "<level>[{level}]</level> <level>{time:YYYY-MM-DD HH:mm:ss.SSS}</level> "
+            "rid={extra[request_id]} - <level>{message}</level>"
+        ),
+        validation_alias="LOG_FORMAT",
+    )
+    level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+
+
+class Settings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    ENVIRONMENT: Literal["local", "dev", "staging", "production", "test"] = Field(
+        default="local", validation_alias="ENVIRONMENT"
+    )
+
+    server: ServerSettings = Field(default_factory=ServerSettings)
+    database: DbSettings = Field(default_factory=DbSettings)
+    api: ApiSettings = Field(default_factory=ApiSettings)
+    loguru: LoguruSettings = Field(default_factory=LoguruSettings)
+    cors: CorsSettings = Field(default_factory=CorsSettings)
+
+    # EXTENSION_SETTINGS
+
+    @property
+    def is_test(self) -> bool:
+        return self.ENVIRONMENT == "test"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT in ("staging", "production")
+
+    def validate_for_api(self) -> None:
+        problems: list[str] = []
+        if self.is_production and self.database.echo:
+            problems.append("DB_ECHO should be disabled in production.")
+        # EXTENSION_VALIDATION
+        if problems:
+            raise ValueError("Configuration errors:\n- " + "\n- ".join(problems))
+
+
+settings = Settings()

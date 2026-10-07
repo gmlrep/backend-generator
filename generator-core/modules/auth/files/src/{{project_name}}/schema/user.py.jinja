@@ -1,0 +1,13 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class User(BaseSchema):
+    id: int | None = None
+    email: str
+    name: str | None = None
+    is_active: bool = True
+    is_superuser: bool = False
+
+
+class FindUser(BaseSchema):
+    email__eq: str | None = None

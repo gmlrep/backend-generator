@@ -1,0 +1,2 @@
+    item_repository = providers.Factory(ItemRepository, session_factory=db.provided.session)
+    item_service = providers.Factory(ItemService, item_repository=item_repository)

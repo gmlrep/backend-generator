@@ -1,0 +1,12 @@
+from collections.abc import Callable
+
+
+def singleton[T](cls: type[T]) -> Callable[..., T]:
+    instances: dict[type[T], T] = {}
+
+    def get_instance(*args, **kwargs) -> T:
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+
+    return get_instance

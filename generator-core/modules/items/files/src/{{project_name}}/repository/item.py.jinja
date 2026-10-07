@@ -1,0 +1,6 @@
+from {{project_name}}.model.item import Item
+from {{project_name}}.repository.base import BaseRepository
+
+
+class ItemRepository(BaseRepository[Item]):
+    model = Item

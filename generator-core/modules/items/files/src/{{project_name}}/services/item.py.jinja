@@ -1,0 +1,19 @@
+from {{project_name}}.model.item import Item as ItemModel
+from {{project_name}}.repository.item import ItemRepository
+from {{project_name}}.schema.item import ItemCreate, ItemRead
+from {{project_name}}.services.base import BaseService
+
+
+class ItemService(BaseService):
+    def __init__(self, item_repository: ItemRepository) -> None:
+        self.item_repository = item_repository
+        super().__init__(item_repository)
+
+    async def create(self, payload: ItemCreate) -> ItemRead:
+        model = ItemModel(**payload.model_dump())
+        created = await self.item_repository.create(model)
+        return ItemRead.model_validate(created)
+
+    async def list_all(self) -> list[ItemRead]:
+        result = await self.item_repository.read_by_options(None)
+        return [ItemRead.model_validate(item) for item in result["founds"]]

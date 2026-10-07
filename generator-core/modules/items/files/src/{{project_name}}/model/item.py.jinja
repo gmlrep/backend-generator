@@ -1,0 +1,11 @@
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{project_name}}.model.base_model import BaseModel
+
+
+class Item(BaseModel):
+    __tablename__ = "item"
+
+    name: Mapped[str] = mapped_column(nullable=False)
+    description: Mapped[str | None] = mapped_column(nullable=True)
+    price: Mapped[float] = mapped_column(default=0.0)

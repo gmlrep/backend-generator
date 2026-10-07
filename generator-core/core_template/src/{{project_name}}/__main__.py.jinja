@@ -1,0 +1,81 @@
+import loguru
+import uvicorn
+from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
+
+from {{project_name}}.api.health import router as health_router
+from {{project_name}}.api.v1.routes import routers as v1_routers
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.container import Container
+from {{project_name}}.core.events import lifespan
+from {{project_name}}.core.exception_handlers import register_exception_handlers
+from {{project_name}}.core.logging import logger_add
+from {{project_name}}.core.middleware import RequestIdMiddleware
+from {{project_name}}.util.class_object import singleton
+
+
+@singleton
+class AppCreator:
+    def __init__(self) -> None:
+        settings.validate_for_api()
+        logger_add()
+
+        self.app = FastAPI(
+            **settings.api.set_backend_app_attributes,
+            lifespan=lifespan,
+        )
+
+        self.container = Container()
+        self.db = self.container.db()
+        self.app.state.db = self.db
+        self.app.state.healthcheck_timeout = settings.server.HEALTHCHECK_TIMEOUT
+
+        self._add_middleware()
+        register_exception_handlers(self.app)
+
+        self.app.include_router(health_router)
+        self.app.include_router(v1_routers, prefix=settings.api.API_PREFIX)
+
+    def _add_middleware(self) -> None:
+        if settings.cors.ALLOWED_ORIGINS:
+            self.app.add_middleware(
+                CORSMiddleware,
+                allow_origins=[str(origin) for origin in settings.cors.ALLOWED_ORIGINS],
+                allow_credentials=settings.cors.ALLOW_CREDENTIALS,
+                allow_methods=settings.cors.ALLOWED_METHODS,
+                allow_headers=settings.cors.ALLOWED_HEADERS,
+            )
+
+        self.app.add_middleware(RequestIdMiddleware)
+
+        if settings.server.TRUSTED_PROXY_IPS:
+            from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+            self.app.add_middleware(
+                ProxyHeadersMiddleware,
+                trusted_hosts=settings.server.TRUSTED_PROXY_IPS,
+            )
+
+
+app_creator = AppCreator()
+app = app_creator.app
+db = app_creator.db
+container = app_creator.container
+
+
+def main() -> None:
+    """Console-script entry point (``[project.scripts]`` / ``uv run {{project_name}}``)."""
+    loguru.logger.info("Starting FastAPI app")
+    uvicorn.run(
+        app="{{project_name}}.__main__:app",
+        host=settings.server.SERVER_HOST,
+        port=settings.server.SERVER_PORT,
+        reload=settings.api.DEBUG,
+        workers=settings.server.SERVER_WORKERS or 1,
+        log_config=None,
+        log_level=settings.loguru.level,
+    )
+
+
+if __name__ == "__main__":
+    main()

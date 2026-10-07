@@ -1,0 +1,58 @@
+PROJECT := {{project_name}}
+COMPOSE ?= docker compose
+
+.DEFAULT_GOAL := help
+.PHONY: help install run dev test test-cov lint format fix migrate revision docker-build docker-up docker-down docker-logs docker-shell clean
+
+help: ## Show available commands
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+install: ## Install dependencies into .venv (uv sync)
+	uv sync
+
+run: ## Run the service locally
+	uv run $(PROJECT)
+
+dev: ## Run locally with auto-reload
+	API_DEBUG=true uv run $(PROJECT)
+
+test: ## Run the test suite locally
+	uv run pytest
+
+test-cov: ## Run tests with coverage
+	uv run pytest --cov=$(PROJECT) --cov-report=term-missing
+
+lint: ## Check code style with ruff
+	uv run ruff check .
+
+format: ## Format the code with ruff
+	uv run ruff format .
+
+fix: ## Auto-fix lint issues and format
+	uv run ruff check --fix .
+	uv run ruff format .
+
+migrate: ## Apply database migrations
+	uv run alembic upgrade head
+
+revision: ## Create a migration (make revision m="message")
+	uv run alembic revision --autogenerate -m "$(m)"
+
+docker-build: ## Build the docker image
+	$(COMPOSE) build
+
+docker-up: ## Start the stack (api + db) in the background
+	$(COMPOSE) up -d
+
+docker-down: ## Stop the stack
+	$(COMPOSE) down
+
+docker-logs: ## Follow the api container logs
+	$(COMPOSE) logs -f api
+
+docker-shell: ## Open a shell inside the api container
+	$(COMPOSE) exec api sh
+
+clean: ## Remove caches and build artifacts
+	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage dist build
+	find . -type d -name __pycache__ -prune -exec rm -rf {} +

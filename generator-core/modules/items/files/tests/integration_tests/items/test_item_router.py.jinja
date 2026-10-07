@@ -1,0 +1,19 @@
+from httpx import AsyncClient
+
+
+async def test_create_and_list_items(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/items", json={"name": "Widget", "price": 9.99})
+    assert response.status_code == 200, response.text
+    created = response.json()
+    assert created["name"] == "Widget"
+    assert created["id"] > 0
+
+    response = await client.get("/api/v1/items")
+    assert response.status_code == 200, response.text
+    assert [item["name"] for item in response.json()] == ["Widget"]
+
+
+async def test_create_item_requires_name(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/items", json={"price": 1.0})
+
+    assert response.status_code == 422

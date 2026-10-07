@@ -1,0 +1,40 @@
+# ruff: noqa: E402, F401
+
+"""Shared test fixtures.
+
+The suite runs against an in-memory SQLite database so it needs no external
+services. The URL is set before the application settings are imported.
+"""
+
+import os
+
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
+from collections.abc import AsyncGenerator
+
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+import {{project_name}}.model  # registers ORM models in Base.metadata
+from {{project_name}}.__main__ import app
+from {{project_name}}.core.database import Base
+
+
+@pytest.fixture(scope="session")
+def fastapi_app() -> FastAPI:
+    return app
+
+
+@pytest_asyncio.fixture
+async def client(fastapi_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    database = fastapi_app.state.db
+    async with database.engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+    transport = ASGITransport(app=fastapi_app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test", follow_redirects=False) as ac:
+        yield ac
