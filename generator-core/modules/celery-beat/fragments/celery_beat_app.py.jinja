@@ -1,0 +1,3 @@
+    from {{project_name}}.infrastructure.celery.beat import BEAT_SCHEDULE
+
+    app.conf.beat_schedule = {**(app.conf.beat_schedule or {}), **BEAT_SCHEDULE}

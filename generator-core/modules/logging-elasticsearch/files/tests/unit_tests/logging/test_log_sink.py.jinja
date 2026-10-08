@@ -1,0 +1,15 @@
+from loguru import logger
+
+from {{project_name}}.infrastructure.logging.interface import InMemoryLogSink
+from {{project_name}}.infrastructure.logging.sinks import add_log_sink, remove_log_sink
+
+
+def test_log_sink_forwards_messages() -> None:
+    sink = InMemoryLogSink()
+    handler_id = add_log_sink(sink, level="INFO")
+    try:
+        logger.info("hello from test")
+    finally:
+        remove_log_sink(handler_id)
+
+    assert any("hello from test" in message for message in sink.messages)

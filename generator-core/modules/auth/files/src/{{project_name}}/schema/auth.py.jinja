@@ -24,5 +24,11 @@ class SignUp(BaseSchema):
 
 class SignInResponse(BaseSchema):
     access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
     expiration: datetime
     user_info: User
+
+
+class RefreshRequest(BaseSchema):
+    refresh_token: str

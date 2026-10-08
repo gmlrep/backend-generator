@@ -1,0 +1,71 @@
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends
+
+from {{project_name}}.core.container import Container
+from {{project_name}}.core.dependencies import get_current_active_user
+from {{project_name}}.schema.mfa import MfaCodeRequest, MfaSetupResponse, MfaStatusResponse
+from {{project_name}}.schema.user import User
+from {{project_name}}.services.mfa import MfaService
+
+router = APIRouter(prefix="/auth/mfa", tags=["mfa"])
+
+
+@router.get("/status", response_model=MfaStatusResponse)
+@inject
+async def status(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> MfaStatusResponse:
+    return MfaStatusResponse(is_enabled=await service.status(current_user.id))
+
+
+@router.post("/setup", response_model=MfaSetupResponse)
+@inject
+async def setup(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> MfaSetupResponse:
+    return await service.setup(current_user)
+
+
+@router.post("/enable", response_model=MfaStatusResponse)
+@inject
+async def enable(
+    payload: MfaCodeRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> MfaStatusResponse:
+    await service.enable(current_user.id, payload.code)
+    return MfaStatusResponse(is_enabled=True)
+
+
+@router.post("/disable", response_model=MfaStatusResponse)
+@inject
+async def disable(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> MfaStatusResponse:
+    await service.disable(current_user.id)
+    return MfaStatusResponse(is_enabled=False)
+
+
+@router.post("/email/send", status_code=204)
+@inject
+async def send_email_code(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> None:
+    await service.send_email_code(current_user)
+
+
+@router.post("/email/verify", response_model=MfaStatusResponse)
+@inject
+async def verify_email_code(
+    payload: MfaCodeRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
+) -> MfaStatusResponse:
+    await service.verify_email_code(current_user.id, payload.code)
+    return MfaStatusResponse(is_enabled=True)

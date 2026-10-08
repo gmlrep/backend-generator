@@ -1,0 +1,68 @@
+from {{project_name}}.services.token_store import InMemoryTokenStore, RedisTokenStore
+
+
+class _FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
+
+    async def set(self, key: str, value: str, ttl: int | None = None) -> None:
+        self.store[key] = value
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            if self.store.pop(key, None) is not None:
+                removed += 1
+            self.sets.pop(key, None)
+        return removed
+
+    async def exists(self, key: str) -> int:
+        return 1 if key in self.store else 0
+
+    async def sadd(self, key: str, *values: str) -> int:
+        members = self.sets.setdefault(key, set())
+        added = 0
+        for value in values:
+            if value not in members:
+                members.add(value)
+                added += 1
+        return added
+
+    async def smembers(self, key: str) -> set[str]:
+        return set(self.sets.get(key, set()))
+
+    async def srem(self, key: str, *values: str) -> int:
+        members = self.sets.get(key, set())
+        removed = 0
+        for value in values:
+            if value in members:
+                members.remove(value)
+                removed += 1
+        return removed
+
+
+async def test_in_memory_store_lifecycle() -> None:
+    store = InMemoryTokenStore()
+
+    await store.save_refresh("j1", 1, 60)
+    assert await store.is_refresh_valid("j1") is True
+
+    await store.revoke_refresh("j1")
+    assert await store.is_refresh_valid("j1") is False
+
+
+async def test_redis_store_revokes_all_tokens_for_user() -> None:
+    store = RedisTokenStore(_FakeRedis())
+
+    await store.save_refresh("j1", 7, 60)
+    await store.save_refresh("j2", 7, 60)
+    assert await store.is_refresh_valid("j1") is True
+
+    await store.revoke_all(7)
+
+    assert await store.is_refresh_valid("j1") is False
+    assert await store.is_refresh_valid("j2") is False

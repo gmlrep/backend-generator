@@ -1,0 +1,15 @@
+manifest_version: "1"
+id: caddy
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies: []
+env_example:
+  - "DOMAIN=localhost"
+  - "ACME_EMAIL="
+patches:
+  - target: Makefile
+    marker: EXTENSION_MAKE
+    fragment: fragments/caddy_make.py.jinja

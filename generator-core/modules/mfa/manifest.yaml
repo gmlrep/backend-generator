@@ -1,0 +1,39 @@
+manifest_version: "1"
+id: mfa
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - auth
+    - redis
+    - email
+conflicts: []
+python_dependencies:
+  - "pyotp>=2.9"
+env_example:
+  - "MFA_ISSUER=FastAPI Service"
+  - "MFA_CODE_TTL_SECONDS=300"
+  - "MFA_CODE_LENGTH=6"
+  - "MFA_TOTP_INTERVAL=30"
+patches:
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/mfa_router.py.jinja
+  - target: src/{{project_name}}/model/__init__.py
+    marker: EXTENSION_MODELS
+    fragment: fragments/mfa_models.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_CLASSES
+    fragment: fragments/mfa_config_classes.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/mfa_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/mfa_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/mfa_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/mfa_container_wiring.py.jinja

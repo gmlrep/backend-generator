@@ -1,0 +1,6 @@
+    sink_to_close = getattr(app.state, "elasticsearch_sink", None)
+    if sink_to_close is not None:
+        handler_id = getattr(app.state, "elasticsearch_handler_id", None)
+        if handler_id is not None:
+            remove_log_sink(handler_id)
+        sink_to_close.close()

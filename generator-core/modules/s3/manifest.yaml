@@ -1,0 +1,29 @@
+manifest_version: "1"
+id: s3
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "aioboto3>=13.0"
+env_example:
+  - "S3_BUCKET=app-bucket"
+  - "S3_ACCESS_KEY="
+  - "S3_SECRET_KEY="
+  - "S3_ENDPOINT_URL="
+  - "S3_REGION=us-east-1"
+  - "S3_USE_SSL=true"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/s3_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/s3_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/s3_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/s3_container_services.py.jinja

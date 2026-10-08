@@ -1,0 +1,44 @@
+from {{project_name}}.model.profile import Profile
+from {{project_name}}.schema.profile import ProfileUpdate
+from {{project_name}}.services.users import UsersService
+
+
+class _FakeProfileRepository:
+    def __init__(self) -> None:
+        self.profile: Profile | None = None
+
+    async def read_by_user_id(self, user_id: int) -> Profile | None:
+        return self.profile
+
+    async def create(self, model: Profile) -> Profile:
+        model.id = 1
+        model.locale = model.locale or "en"
+        model.timezone = model.timezone or "UTC"
+        self.profile = model
+        return model
+
+    async def update_by_id(self, id: int, obj: dict) -> Profile | None:
+        if self.profile is not None:
+            for key, value in obj.items():
+                setattr(self.profile, key, value)
+        return self.profile
+
+
+async def test_get_or_create_profile_creates_once() -> None:
+    repository = _FakeProfileRepository()
+    service = UsersService(repository)
+
+    profile = await service.get_or_create_profile(7)
+
+    assert profile.user_id == 7
+    assert repository.profile is not None
+
+
+async def test_update_profile_applies_changes() -> None:
+    repository = _FakeProfileRepository()
+    service = UsersService(repository)
+
+    profile = await service.update_profile(7, ProfileUpdate(display_name="Ada", locale="ru"))
+
+    assert profile.display_name == "Ada"
+    assert profile.locale == "ru"

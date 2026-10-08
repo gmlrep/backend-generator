@@ -1,0 +1,60 @@
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from starlette.responses import PlainTextResponse
+
+from {{project_name}}.core.middleware.rate_limit import RateLimitMiddleware
+from {{project_name}}.services.rate_limit import RateLimitService
+
+
+class _FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    async def incr(self, key: str, amount: int = 1) -> int:
+        self.store[key] = str(int(self.store.get(key, "0")) + amount)
+        return int(self.store[key])
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return True
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+
+async def test_service_allows_up_to_limit() -> None:
+    service = RateLimitService(_FakeRedis(), limit=2, window=60)
+
+    assert await service.is_allowed("client") is True
+    assert await service.is_allowed("client") is True
+    assert await service.is_allowed("client") is False
+    assert await service.remaining("client") == 0
+
+
+async def test_middleware_returns_429_when_limit_exceeded() -> None:
+    app = FastAPI()
+
+    @app.get("/ping")
+    async def ping() -> PlainTextResponse:
+        return PlainTextResponse("pong")
+
+    app.add_middleware(RateLimitMiddleware, redis_client=_FakeRedis(), limit=1, window=60, enabled=True)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        assert (await client.get("/ping")).status_code == 200
+        assert (await client.get("/ping")).status_code == 429
+
+
+async def test_middleware_can_be_disabled() -> None:
+    app = FastAPI()
+
+    @app.get("/ping")
+    async def ping() -> PlainTextResponse:
+        return PlainTextResponse("pong")
+
+    app.add_middleware(RateLimitMiddleware, redis_client=_FakeRedis(), limit=1, window=60, enabled=False)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        assert (await client.get("/ping")).status_code == 200
+        assert (await client.get("/ping")).status_code == 200

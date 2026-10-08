@@ -1,28 +1,24 @@
 from typing import Annotated
 
-import jwt
 from dependency_injector.wiring import Provide, inject
-from fastapi import Depends
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBasicCredentials
 from pydantic import ValidationError
 
-from {{project_name}}.core.config import settings
 from {{project_name}}.core.container import Container
 from {{project_name}}.core.exceptions import AuthError
-from {{project_name}}.core.security import JWTBearer
+from {{project_name}}.core.security import ACCESS_TOKEN_TYPE, JWTBearer, basic_scheme, decode_jwt
 from {{project_name}}.schema.auth import Payload
 from {{project_name}}.schema.user import User
+from {{project_name}}.services.auth import AuthService
 from {{project_name}}.services.user import UserService
 
 
 async def _resolve_user(token: str, service: UserService) -> User | None:
     try:
-        payload = jwt.decode(
-            token,
-            key=settings.security.get_verification_key(),
-            algorithms=[settings.security.JWT_ALGORITHM],
-        )
+        payload = decode_jwt(token, expected_type=ACCESS_TOKEN_TYPE)
         token_data = Payload(**payload)
-    except (jwt.PyJWTError, ValidationError):
+    except (HTTPException, ValidationError):
         return None
     return await service.get_by_id(token_data.id)
 
@@ -58,3 +54,14 @@ async def get_current_super_user(current_user: Annotated[User, Depends(get_curre
     if not current_user.is_superuser:
         raise AuthError(detail="It's not a super user")
     return current_user
+
+
+@inject
+async def get_current_user_basic(
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_scheme)],
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> User:
+    """HTTP Basic authentication for internal/legacy clients."""
+    if credentials is None:
+        raise AuthError(detail="Invalid authorization header")
+    return await service.authenticate(credentials.username, credentials.password)

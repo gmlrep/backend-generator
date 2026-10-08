@@ -1,0 +1,47 @@
+manifest_version: "1"
+id: rabbitmq
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "faststream[rabbit]>=0.7"
+env_example:
+  - "RABBITMQ_URL="
+  - "RABBITMQ_HOST=localhost"
+  - "RABBITMQ_PORT=5672"
+  - "RABBITMQ_USER=guest"
+  - "RABBITMQ_PASSWORD=guest"
+  - "RABBITMQ_VHOST=/"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/rabbitmq_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/rabbitmq_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/rabbitmq_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/rabbitmq_container_services.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/rabbitmq_lifespan_startup.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_SHUTDOWN
+    fragment: fragments/rabbitmq_lifespan_shutdown.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/rabbitmq_compose_env.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/rabbitmq_compose_service.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_DEPENDS_ON
+    fragment: fragments/rabbitmq_compose_depends.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/rabbitmq_compose_volume.py.jinja

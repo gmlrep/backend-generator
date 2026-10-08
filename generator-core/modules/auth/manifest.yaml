@@ -3,7 +3,8 @@ id: auth
 version: "1.0.0"
 requires:
   core: ">=1.0.0,<2.0.0"
-  modules: []
+  modules:
+    - redis
 conflicts: []
 python_dependencies:
   - "pwdlib[bcrypt]>=0.3"
@@ -13,6 +14,7 @@ env_example:
   - "JWT_SECRET=change-me-in-production-min-32-chars"
   - "JWT_ALGORITHM=HS256"
   - "JWT_EXPIRES_MINUTES=30"
+  - "JWT_REFRESH_EXPIRES_DAYS=7"
 patches:
   - target: src/{{project_name}}/api/v1/routes.py
     marker: EXTENSION_ROUTERS
@@ -23,6 +25,9 @@ patches:
   - target: src/{{project_name}}/core/config.py
     marker: EXTENSION_CONFIG_IMPORTS
     fragment: fragments/auth_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_CLASSES
+    fragment: fragments/auth_config_classes.py.jinja
   - target: src/{{project_name}}/core/config.py
     marker: EXTENSION_SETTINGS
     fragment: fragments/auth_config_settings.py.jinja

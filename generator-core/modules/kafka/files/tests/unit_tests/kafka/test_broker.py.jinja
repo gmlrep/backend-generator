@@ -1,0 +1,38 @@
+from faststream.kafka import KafkaBroker
+
+from {{project_name}}.infrastructure.kafka.broker import create_kafka_broker
+from {{project_name}}.infrastructure.messaging import MessageBroker
+
+
+def test_factory_returns_universal_broker() -> None:
+    broker = create_kafka_broker(["localhost:9092"], "svc")
+
+    assert isinstance(broker, MessageBroker)
+    assert isinstance(broker.raw, KafkaBroker)
+
+
+def test_factory_builds_sasl_security() -> None:
+    broker = create_kafka_broker(
+        "localhost:9092",
+        "svc",
+        use_ssl=True,
+        sasl_mechanism="PLAIN",
+        sasl_username="user",
+        sasl_password="pass",
+    )
+
+    assert isinstance(broker.raw, KafkaBroker)
+    assert broker.raw._connection_kwargs["sasl_mechanism"] == "PLAIN"
+    assert broker.raw._connection_kwargs["sasl_plain_username"] == "user"
+
+
+def test_bootstrap_servers_are_split() -> None:
+    from {{project_name}}.infrastructure.kafka.config import KafkaSettings
+
+    settings = KafkaSettings(
+        KAFKA_BOOTSTRAP_SERVERS="broker-1:9092, broker-2:9092",
+        KAFKA_CLIENT_ID="svc",
+        KAFKA_GROUP_ID="svc",
+    )
+
+    assert settings.bootstrap_servers == ["broker-1:9092", "broker-2:9092"]

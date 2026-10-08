@@ -1,0 +1,47 @@
+manifest_version: "1"
+id: redis
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "redis>=5.0"
+env_example:
+  - "REDIS_HOST=localhost"
+  - "REDIS_PORT=6379"
+  - "REDIS_DB=0"
+  - "REDIS_PASSWORD="
+  - "REDIS_URL="
+  - "REDIS_DEFAULT_TTL=3600"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/redis_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/redis_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/redis_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/redis_container_services.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/redis_lifespan_startup.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_SHUTDOWN
+    fragment: fragments/redis_lifespan_shutdown.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/redis_compose_env.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/redis_compose_service.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_DEPENDS_ON
+    fragment: fragments/redis_compose_depends.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/redis_compose_volume.py.jinja

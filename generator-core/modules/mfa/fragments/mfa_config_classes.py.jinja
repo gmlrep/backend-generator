@@ -1,0 +1,9 @@
+class MfaSettings(BaseSettings):
+    """MFA (TOTP + email code) settings."""
+
+    model_config = _ENV_CONFIG
+
+    ISSUER: str = Field(default="FastAPI Service", validation_alias="MFA_ISSUER")
+    CODE_TTL_SECONDS: int = Field(default=300, validation_alias="MFA_CODE_TTL_SECONDS")
+    CODE_LENGTH: int = Field(default=6, validation_alias="MFA_CODE_LENGTH")
+    TOTP_INTERVAL: int = Field(default=30, validation_alias="MFA_TOTP_INTERVAL")

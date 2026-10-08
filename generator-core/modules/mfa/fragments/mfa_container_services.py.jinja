@@ -1,0 +1,9 @@
+    mfa_repository = providers.Factory(MfaRepository, session_factory=db.provided.session)
+    mfa_code_store = providers.Singleton(create_mfa_code_store, redis_client=redis_client, use_memory=settings.is_test)
+
+    mfa_service = providers.Factory(
+        MfaService,
+        mfa_repository=mfa_repository,
+        email_sender=email_sender,
+        code_store=mfa_code_store,
+    )

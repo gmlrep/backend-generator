@@ -1,0 +1,20 @@
+from {{project_name}}.services.openai_tasks import OpenAIService
+
+
+class _FakeTextGenerator:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def generate(self, prompt: str, *, system: str | None = None) -> str:
+        self.prompts.append(prompt)
+        return "summary"
+
+
+async def test_summarize_uses_generator() -> None:
+    generator = _FakeTextGenerator()
+    service = OpenAIService(generator)
+
+    result = await service.summarize("long text")
+
+    assert result == "summary"
+    assert generator.prompts and "long text" in generator.prompts[0]

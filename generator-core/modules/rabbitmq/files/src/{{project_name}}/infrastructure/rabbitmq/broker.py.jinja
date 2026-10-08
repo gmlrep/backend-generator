@@ -1,0 +1,12 @@
+from faststream.rabbit import RabbitBroker
+
+from {{project_name}}.infrastructure.messaging import MessageBroker
+
+
+def create_rabbitmq_broker(url: str) -> MessageBroker:
+    """Build a RabbitMQ broker behind the universal :class:`MessageBroker` facade.
+
+    The broker connects lazily; the application lifespan calls ``start`` and
+    ``stop`` on the returned facade.
+    """
+    return MessageBroker(RabbitBroker(url))

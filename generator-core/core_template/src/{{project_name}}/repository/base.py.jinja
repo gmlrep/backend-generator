@@ -39,7 +39,9 @@ class BaseRepository[ModelType: BaseModel]:
 
     async def update_by_id(self, id: int, obj: dict[str, Any]) -> ModelType | None:
         async with self.session_factory() as session:
-            db_obj = await self.read_by_id(id)
+            stmt = select(self.model).where(self.model.id == id)
+            result = await session.execute(stmt)
+            db_obj = result.scalar_one_or_none()
             if not db_obj:
                 return None
             for key, value in obj.items():
@@ -50,7 +52,9 @@ class BaseRepository[ModelType: BaseModel]:
 
     async def delete_by_id(self, id: int) -> bool:
         async with self.session_factory() as session:
-            db_obj = await self.read_by_id(id)
+            stmt = select(self.model).where(self.model.id == id)
+            result = await session.execute(stmt)
+            db_obj = result.scalar_one_or_none()
             if not db_obj:
                 return False
             await session.delete(db_obj)

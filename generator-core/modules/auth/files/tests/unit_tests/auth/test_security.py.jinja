@@ -2,7 +2,9 @@ import pytest
 from fastapi import HTTPException
 
 from {{project_name}}.core.security import (
+    REFRESH_TOKEN_TYPE,
     create_access_token,
+    create_refresh_token,
     decode_jwt,
     get_password_hash,
     verify_password,
@@ -18,12 +20,21 @@ async def test_password_hash_roundtrip() -> None:
 
 
 def test_access_token_roundtrip() -> None:
-    token, expires = create_access_token({"sub": "42"})
-    payload = decode_jwt(token)
+    token, expires, jti = create_access_token({"id": 42, "email": "u@test.io"})
+    payload = decode_jwt(token, expected_type="access")
 
-    assert payload["sub"] == "42"
+    assert payload["id"] == 42
+    assert payload["jti"] == jti
     assert "exp" in payload
     assert expires is not None
+
+
+def test_refresh_token_type_is_enforced() -> None:
+    token, _, _ = create_refresh_token({"id": 1})
+
+    assert decode_jwt(token, expected_type=REFRESH_TOKEN_TYPE)["type"] == "refresh"
+    with pytest.raises(HTTPException):
+        decode_jwt(token, expected_type="access")
 
 
 def test_decode_invalid_token_raises() -> None:

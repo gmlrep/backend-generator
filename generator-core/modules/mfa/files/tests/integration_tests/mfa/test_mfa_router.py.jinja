@@ -1,0 +1,36 @@
+import pyotp
+from httpx import AsyncClient
+
+
+async def _auth_headers(client: AsyncClient, email: str = "mfa@test.io") -> dict[str, str]:
+    await client.post("/api/v1/auth/sign-up", json={"email": email, "password": "plain", "name": "MFA"})
+    sign_in = await client.post("/api/v1/auth/sign-in", json={"email": email, "password": "plain"})
+    return {"Authorization": f"Bearer {sign_in.json()['access_token']}"}
+
+
+async def test_mfa_totp_flow(client: AsyncClient) -> None:
+    headers = await _auth_headers(client)
+
+    status = await client.get("/api/v1/auth/mfa/status", headers=headers)
+    assert status.json()["is_enabled"] is False
+
+    setup = await client.post("/api/v1/auth/mfa/setup", headers=headers)
+    assert setup.status_code == 200, setup.text
+    secret = setup.json()["secret"]
+
+    code = pyotp.TOTP(secret).now()
+    enabled = await client.post("/api/v1/auth/mfa/enable", json={"code": code}, headers=headers)
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["is_enabled"] is True
+
+    disabled = await client.post("/api/v1/auth/mfa/disable", headers=headers)
+    assert disabled.json()["is_enabled"] is False
+
+
+async def test_mfa_rejects_invalid_code(client: AsyncClient) -> None:
+    headers = await _auth_headers(client, email="mfa2@test.io")
+    await client.post("/api/v1/auth/mfa/setup", headers=headers)
+
+    response = await client.post("/api/v1/auth/mfa/enable", json={"code": "000000"}, headers=headers)
+
+    assert response.status_code == 401

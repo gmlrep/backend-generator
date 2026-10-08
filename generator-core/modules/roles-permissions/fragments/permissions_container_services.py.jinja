@@ -1,0 +1,8 @@
+    role_repository = providers.Factory(RoleRepository, session_factory=db.provided.session)
+    permission_repository = providers.Factory(PermissionRepository, session_factory=db.provided.session)
+
+    permission_service = providers.Factory(
+        PermissionService,
+        role_repository=role_repository,
+        permission_repository=permission_repository,
+    )

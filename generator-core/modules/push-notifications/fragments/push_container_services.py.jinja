@@ -1,0 +1,6 @@
+    push_sender = providers.Singleton(
+        FirebasePushSender,
+        credentials_path=settings.firebase.CREDENTIALS_PATH,
+        project_id=settings.firebase.PROJECT_ID,
+    )
+    notification_service = providers.Factory(NotificationService, push_sender=push_sender)

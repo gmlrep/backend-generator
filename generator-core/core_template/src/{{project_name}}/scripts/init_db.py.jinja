@@ -1,0 +1,89 @@
+"""Prepare the database schema on container start.
+
+Behaviour:
+
+* if the database already has application tables, nothing is done;
+* if it is empty and the project ships Alembic revisions, ``alembic upgrade
+  head`` is applied;
+* if it is empty and there are no revisions yet, the schema is created
+  directly from the SQLAlchemy models so a freshly generated project works
+  out of the box.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
+
+from {{project_name}}.core.config import settings
+
+ALEMBIC_CONFIG = "alembic.ini"
+VERSIONS_DIR = Path("migrations/versions")
+ALEMBIC_VERSION_TABLE = "alembic_version"
+CONNECT_RETRIES = 10
+CONNECT_DELAY_SECONDS = 2.0
+
+
+async def _existing_tables() -> list[str]:
+    engine = create_async_engine(settings.database.db_url, poolclass=NullPool)
+    try:
+        for attempt in range(1, CONNECT_RETRIES + 1):
+            try:
+                async with engine.connect() as connection:
+                    return await connection.run_sync(lambda conn: inspect(conn).get_table_names())
+            except Exception as exc:  # noqa: BLE001 - database may still be starting
+                if attempt == CONNECT_RETRIES:
+                    raise
+                print(
+                    f"[init-db] database is not ready (attempt {attempt}/{CONNECT_RETRIES}): {exc}",
+                    flush=True,
+                )
+                await asyncio.sleep(CONNECT_DELAY_SECONDS)
+        return []
+    finally:
+        await engine.dispose()
+
+
+def _has_revisions() -> bool:
+    if not VERSIONS_DIR.is_dir():
+        return False
+    return any(path.name != "__init__.py" for path in VERSIONS_DIR.glob("*.py"))
+
+
+async def _create_schema_from_models() -> None:
+    # Importing the model package registers every table on Base.metadata.
+    import {{project_name}}.model  # noqa: F401
+    from {{project_name}}.core.database import Base
+
+    engine = create_async_engine(settings.database.db_url, poolclass=NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+    finally:
+        await engine.dispose()
+
+
+def main() -> None:
+    tables = [name for name in asyncio.run(_existing_tables()) if name != ALEMBIC_VERSION_TABLE]
+    if tables:
+        print(f"[init-db] schema already present ({len(tables)} tables), skipping.", flush=True)
+        return
+
+    if _has_revisions():
+        print("[init-db] empty database detected, running 'alembic upgrade head' ...", flush=True)
+        command.upgrade(Config(ALEMBIC_CONFIG), "head")
+    else:
+        print("[init-db] no migrations found, creating schema from models ...", flush=True)
+        asyncio.run(_create_schema_from_models())
+
+    print("[init-db] database schema is ready.", flush=True)
+
+
+if __name__ == "__main__":
+    main()

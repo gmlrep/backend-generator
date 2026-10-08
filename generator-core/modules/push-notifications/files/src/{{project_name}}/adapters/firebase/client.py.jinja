@@ -1,0 +1,56 @@
+import asyncio
+
+import firebase_admin
+from firebase_admin import credentials, messaging
+
+
+class FirebasePushSender:
+    """``PushSender`` implementation backed by the Firebase Admin SDK.
+
+    The SDK is synchronous, so every call is dispatched to a worker thread to
+    avoid blocking the event loop.
+    """
+
+    def __init__(self, credentials_path: str | None = None, project_id: str | None = None) -> None:
+        if not firebase_admin._apps:  # type: ignore[attr-defined]
+            cred = (
+                credentials.Certificate(credentials_path)
+                if credentials_path
+                else credentials.ApplicationDefault()
+            )
+            options = {"projectId": project_id} if project_id else None
+            firebase_admin.initialize_app(cred, options)
+
+    async def send_to_user(
+        self,
+        user_token: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str:
+        message = messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            token=user_token,
+            data=data or {},
+        )
+        return await asyncio.to_thread(messaging.send, message)
+
+    async def send_to_topic(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str:
+        message = messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            topic=topic,
+            data=data or {},
+        )
+        return await asyncio.to_thread(messaging.send, message)
+
+    async def subscribe(self, topic: str, tokens: list[str]) -> None:
+        await asyncio.to_thread(messaging.subscribe_to_topic, tokens, topic)
+
+    async def unsubscribe(self, topic: str, tokens: list[str]) -> None:
+        await asyncio.to_thread(messaging.unsubscribe_from_topic, tokens, topic)

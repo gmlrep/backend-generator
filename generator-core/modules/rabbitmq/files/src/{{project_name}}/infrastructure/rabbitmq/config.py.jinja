@@ -1,0 +1,29 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class RabbitMQSettings(BaseSettings):
+    """RabbitMQ connection settings.
+
+    Either ``RABBITMQ_URL`` or the discrete values may be used; the URL wins
+    when present.
+    """
+
+    model_config = _ENV_CONFIG
+
+    HOST: str = Field(default="localhost", validation_alias="RABBITMQ_HOST")
+    PORT: int = Field(default=5672, validation_alias="RABBITMQ_PORT")
+    USER: str = Field(default="guest", validation_alias="RABBITMQ_USER")
+    PASSWORD: str = Field(default="guest", validation_alias="RABBITMQ_PASSWORD")
+    VHOST: str = Field(default="/", validation_alias="RABBITMQ_VHOST")
+    URL: str | None = Field(default=None, validation_alias="RABBITMQ_URL")
+
+    @property
+    def url(self) -> str:
+        if self.URL:
+            return self.URL
+        vhost = self.VHOST.lstrip("/")
+        return f"amqp://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{vhost}"

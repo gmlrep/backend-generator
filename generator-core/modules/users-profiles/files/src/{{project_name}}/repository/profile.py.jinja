@@ -1,0 +1,14 @@
+from sqlalchemy import select
+
+from {{project_name}}.model.profile import Profile
+from {{project_name}}.repository.base import BaseRepository
+
+
+class ProfileRepository(BaseRepository[Profile]):
+    model = Profile
+
+    async def read_by_user_id(self, user_id: int) -> Profile | None:
+        async with self.session_factory() as session:
+            stmt = select(Profile).where(Profile.user_id == user_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()

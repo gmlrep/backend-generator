@@ -1,0 +1,9 @@
+    email_sender = providers.Singleton(
+        SMTPEmailSender,
+        host=settings.email.HOST,
+        port=settings.email.PORT,
+        username=settings.email.USER,
+        password=settings.email.PASSWORD,
+        sender=settings.email.FROM,
+        start_tls=settings.email.START_TLS,
+    )

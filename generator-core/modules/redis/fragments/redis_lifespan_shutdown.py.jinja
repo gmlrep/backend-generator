@@ -1,0 +1,3 @@
+    redis_client = getattr(app.state, "redis_client", None)
+    if redis_client is not None:
+        await redis_client.close()

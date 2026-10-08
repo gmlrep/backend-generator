@@ -1,14 +1,20 @@
+# ruff: noqa: I001
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from loguru import logger
 
+# EXTENSION_LIFESPAN_IMPORTS
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Server has been started")
+    # EXTENSION_LIFESPAN_STARTUP
     yield
+    # EXTENSION_LIFESPAN_SHUTDOWN
     database = getattr(app.state, "db", None)
     if database is not None:
         await database.dispose()

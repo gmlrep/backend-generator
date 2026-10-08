@@ -1,0 +1,14 @@
+from sqlalchemy import select
+
+from {{project_name}}.model.permission import Permission
+from {{project_name}}.repository.base import BaseRepository
+
+
+class PermissionRepository(BaseRepository[Permission]):
+    model = Permission
+
+    async def read_by_code(self, code: str) -> Permission | None:
+        async with self.session_factory() as session:
+            stmt = select(Permission).where(Permission.code == code)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()

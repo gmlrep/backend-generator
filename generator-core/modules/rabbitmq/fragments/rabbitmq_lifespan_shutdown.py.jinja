@@ -1,0 +1,3 @@
+    rabbitmq_broker = getattr(app.state, "rabbitmq_broker", None)
+    if rabbitmq_broker is not None:
+        await rabbitmq_broker.stop()

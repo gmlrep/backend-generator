@@ -1,0 +1,7 @@
+        self.app.add_middleware(
+            RateLimitMiddleware,
+            redis_client=self.container.redis_client(),
+            limit=settings.rate_limit.REQUESTS,
+            window=settings.rate_limit.WINDOW_SECONDS,
+            enabled=settings.rate_limit.ENABLED,
+        )

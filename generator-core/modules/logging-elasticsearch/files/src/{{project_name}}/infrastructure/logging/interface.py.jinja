@@ -1,0 +1,22 @@
+from typing import Protocol
+
+
+class LogSink(Protocol):
+    """Port for a log destination (Elasticsearch in production)."""
+
+    def write(self, message: str) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class InMemoryLogSink:
+    """Test/dev sink that keeps the last messages in memory."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def write(self, message: str) -> None:
+        self.messages.append(message)
+
+    def close(self) -> None:
+        pass

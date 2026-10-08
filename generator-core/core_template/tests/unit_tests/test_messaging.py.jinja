@@ -1,0 +1,63 @@
+from typing import Any
+
+from {{project_name}}.infrastructure.messaging import MessageBroker
+
+
+class _FakeBroker:
+    def __init__(self) -> None:
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.published: list[tuple[str, Any]] = []
+        self.subscriptions: list[str] = []
+
+    async def start(self) -> None:
+        self.start_calls += 1
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+
+    async def publish(self, message: Any, destination: str = "", **kwargs: Any) -> None:
+        self.published.append((destination, message))
+
+    def subscriber(self, destination: str, **kwargs: Any) -> Any:
+        self.subscriptions.append(destination)
+
+        def decorator(handler: Any) -> Any:
+            return handler
+
+        return decorator
+
+
+async def test_facade_lifecycle_is_idempotent() -> None:
+    fake = _FakeBroker()
+    broker = MessageBroker(fake)
+
+    await broker.stop()  # no-op before start
+    await broker.start()
+    await broker.start()
+    await broker.stop()
+    await broker.stop()
+
+    assert fake.start_calls == 1
+    assert fake.stop_calls == 1
+    assert broker.is_started is False
+
+
+async def test_facade_publishes_to_topic() -> None:
+    fake = _FakeBroker()
+    broker = MessageBroker(fake)
+
+    await broker.publish("events", {"id": 1})
+
+    assert fake.published == [("events", {"id": 1})]
+
+
+def test_facade_subscribe_registers_handler() -> None:
+    fake = _FakeBroker()
+    broker = MessageBroker(fake)
+
+    @broker.subscribe("events")
+    async def handler(message: Any) -> None: ...
+
+    assert fake.subscriptions == ["events"]
+    assert callable(handler)

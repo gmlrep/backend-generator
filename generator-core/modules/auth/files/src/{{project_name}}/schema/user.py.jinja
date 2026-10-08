@@ -2,7 +2,7 @@ from {{project_name}}.schema.base import BaseSchema
 
 
 class User(BaseSchema):
-    id: int | None = None
+    id: int
     email: str
     name: str | None = None
     is_active: bool = True

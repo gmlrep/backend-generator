@@ -1,0 +1,37 @@
+# Production compose override.
+#
+# The API is no longer published on the host; it is reachable only inside the
+# Docker network. Caddy terminates TLS on 80/443 and proxies to the api service.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  api:
+    # Close the public API port; Caddy is the only entry point.
+    ports: !reset []
+    expose:
+      - "${API_PORT:-9000}"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  caddy_data:
+  caddy_config:

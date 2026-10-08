@@ -1,0 +1,39 @@
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
+from {{project_name}}.infrastructure.redis.client import RedisClient
+from {{project_name}}.services.rate_limit import RateLimitService
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Global fixed-window rate limiting for every request."""
+
+    def __init__(
+        self,
+        app,
+        redis_client: RedisClient,
+        limit: int = 100,
+        window: int = 60,
+        enabled: bool = True,
+        scope: str = "global",
+    ) -> None:
+        super().__init__(app)
+        self.redis_client = redis_client
+        self.limit = limit
+        self.window = window
+        self.enabled = enabled
+        self.scope = scope
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if not self.enabled:
+            return await call_next(request)
+
+        identifier = request.client.host if request.client else "unknown"
+        service = RateLimitService(self.redis_client, limit=self.limit, window=self.window)
+        if not await service.is_allowed(f"{self.scope}:{identifier}:{request.url.path}"):
+            return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+
+        response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(self.limit)
+        return response

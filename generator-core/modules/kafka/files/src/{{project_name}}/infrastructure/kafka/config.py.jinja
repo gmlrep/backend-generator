@@ -1,0 +1,27 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class KafkaSettings(BaseSettings):
+    """Kafka client settings.
+
+    Kafka is treated as an external/managed service: there is no compose
+    service, only the connection settings consumed by the API and workers.
+    """
+
+    model_config = _ENV_CONFIG
+
+    BOOTSTRAP_SERVERS: str = Field(default="localhost:9092", validation_alias="KAFKA_BOOTSTRAP_SERVERS")
+    CLIENT_ID: str = Field(default="{{project_name}}", validation_alias="KAFKA_CLIENT_ID")
+    GROUP_ID: str = Field(default="{{project_name}}", validation_alias="KAFKA_GROUP_ID")
+    USE_SSL: bool = Field(default=False, validation_alias="KAFKA_USE_SSL")
+    SASL_MECHANISM: str | None = Field(default=None, validation_alias="KAFKA_SASL_MECHANISM")
+    SASL_USERNAME: str | None = Field(default=None, validation_alias="KAFKA_SASL_USERNAME")
+    SASL_PASSWORD: str | None = Field(default=None, validation_alias="KAFKA_SASL_PASSWORD")
+
+    @property
+    def bootstrap_servers(self) -> list[str]:
+        return [server.strip() for server in self.BOOTSTRAP_SERVERS.split(",") if server.strip()]

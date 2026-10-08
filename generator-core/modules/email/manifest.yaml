@@ -1,0 +1,29 @@
+manifest_version: "1"
+id: email
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "aiosmtplib>=4.0"
+env_example:
+  - "SMTP_HOST=localhost"
+  - "SMTP_PORT=587"
+  - "SMTP_USER="
+  - "SMTP_PASSWORD="
+  - "SMTP_FROM=noreply@example.com"
+  - "SMTP_START_TLS=true"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/email_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/email_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/email_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/email_container_services.py.jinja

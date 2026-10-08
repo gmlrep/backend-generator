@@ -1,0 +1,110 @@
+from {{project_name}}.infrastructure.redis.client import RedisClient
+
+
+class _FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
+        self.published: list[tuple[str, str]] = []
+        self.closed = False
+
+    async def ping(self) -> bool:
+        return True
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            if self.store.pop(key, None) is not None:
+                removed += 1
+        return removed
+
+    async def exists(self, key: str) -> int:
+        return 1 if key in self.store else 0
+
+    async def expire(self, key: str, ttl: int) -> int:
+        return 1 if key in self.store else 0
+
+    async def incrby(self, key: str, amount: int) -> int:
+        self.store[key] = str(int(self.store.get(key, "0")) + amount)
+        return int(self.store[key])
+
+    async def sadd(self, key: str, *values: str) -> int:
+        members = self.sets.setdefault(key, set())
+        added = 0
+        for value in values:
+            if value not in members:
+                members.add(value)
+                added += 1
+        return added
+
+    async def smembers(self, key: str) -> set[str]:
+        return set(self.sets.get(key, set()))
+
+    async def srem(self, key: str, *values: str) -> int:
+        members = self.sets.get(key, set())
+        removed = 0
+        for value in values:
+            if value in members:
+                members.remove(value)
+                removed += 1
+        return removed
+
+    async def publish(self, channel: str, message: str) -> int:
+        self.published.append((channel, message))
+        return 1
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _client() -> tuple[RedisClient, _FakeRedis]:
+    client = RedisClient("redis://localhost:6379/0")
+    fake = _FakeRedis()
+    client._client = fake  # type: ignore[assignment]
+    return client, fake
+
+
+async def test_set_get_and_delete() -> None:
+    client, _ = _client()
+
+    await client.set("k", "v")
+
+    assert await client.get("k") == "v"
+    assert await client.exists("k") is True
+    assert await client.delete("k") == 1
+    assert await client.get("k") is None
+
+
+async def test_json_roundtrip() -> None:
+    client, _ = _client()
+
+    await client.set_json("user", {"id": 1, "name": "Ada"})
+
+    assert await client.get_json("user") == {"id": 1, "name": "Ada"}
+
+
+async def test_incr_publish_and_close() -> None:
+    client, fake = _client()
+
+    assert await client.incr("counter") == 1
+    assert await client.incr("counter", 4) == 5
+    assert await client.publish("events", "hello") == 1
+    assert fake.published == [("events", "hello")]
+
+    await client.close()
+    assert fake.closed is True
+
+
+async def test_set_operations() -> None:
+    client, _ = _client()
+
+    assert await client.sadd("members", "a", "b") == 2
+    assert await client.smembers("members") == {"a", "b"}
+    assert await client.srem("members", "a") == 1
+    assert await client.smembers("members") == {"b"}

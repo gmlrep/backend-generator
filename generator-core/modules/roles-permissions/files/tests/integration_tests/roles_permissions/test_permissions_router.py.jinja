@@ -1,0 +1,24 @@
+from httpx import AsyncClient
+
+
+async def _auth_headers(client: AsyncClient) -> dict[str, str]:
+    await client.post("/api/v1/auth/sign-up", json={"email": "perm@test.io", "password": "plain", "name": "Perm"})
+    sign_in = await client.post("/api/v1/auth/sign-in", json={"email": "perm@test.io", "password": "plain"})
+    return {"Authorization": f"Bearer {sign_in.json()['access_token']}"}
+
+
+async def test_new_user_has_no_permissions(client: AsyncClient) -> None:
+    headers = await _auth_headers(client)
+
+    response = await client.get("/api/v1/permissions/me", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == []
+
+
+async def test_regular_user_cannot_manage_roles(client: AsyncClient) -> None:
+    headers = await _auth_headers(client)
+
+    response = await client.post("/api/v1/permissions/roles", json={"name": "admin"}, headers=headers)
+
+    assert response.status_code == 401

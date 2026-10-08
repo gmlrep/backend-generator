@@ -1,0 +1,7 @@
+    text_generator = providers.Singleton(
+        OpenAITextGenerator,
+        api_key=settings.openai.API_KEY,
+        base_url=settings.openai.BASE_URL,
+        model=settings.openai.MODEL,
+    )
+    openai_service = providers.Factory(OpenAIService, text_generator=text_generator)

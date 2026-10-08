@@ -1,0 +1,32 @@
+manifest_version: "1"
+id: prometheus
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "prometheus-fastapi-instrumentator>=7.0"
+env_example:
+  - "PROMETHEUS_ENABLED=true"
+  - "PROMETHEUS_ENDPOINT=/metrics"
+  - "PROMETHEUS_PORT=9090"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/prometheus_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/prometheus_config_settings.py.jinja
+  - target: src/{{project_name}}/__main__.py
+    marker: EXTENSION_MAIN_IMPORTS
+    fragment: fragments/prometheus_main_imports.py.jinja
+  - target: src/{{project_name}}/__main__.py
+    marker: EXTENSION_APP_SETUP
+    fragment: fragments/prometheus_app_setup.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/prometheus_compose_service.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/prometheus_compose_volume.py.jinja

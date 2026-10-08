@@ -1,0 +1,39 @@
+from {{project_name}}.services.notifications import NotificationService
+
+
+class _FakePushSender:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send_to_user(self, user_token: str, title: str, body: str, data=None) -> str:
+        self.sent.append((user_token, title, body))
+        return "ok"
+
+    async def send_to_topic(self, topic: str, title: str, body: str, data=None) -> str:
+        self.sent.append((topic, title, body))
+        return "ok"
+
+    async def subscribe(self, topic: str, tokens: list[str]) -> None:
+        pass
+
+    async def unsubscribe(self, topic: str, tokens: list[str]) -> None:
+        pass
+
+
+async def test_notify_user_delegates_to_sender() -> None:
+    sender = _FakePushSender()
+    service = NotificationService(sender)
+
+    result = await service.notify_user("token-1", "Hi", "Hello")
+
+    assert result == "ok"
+    assert sender.sent == [("token-1", "Hi", "Hello")]
+
+
+async def test_notify_topic_delegates_to_sender() -> None:
+    sender = _FakePushSender()
+    service = NotificationService(sender)
+
+    await service.notify_topic("news", "Update", "New release")
+
+    assert sender.sent == [("news", "Update", "New release")]

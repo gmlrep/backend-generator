@@ -1,0 +1,17 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class CelerySettings(BaseSettings):
+    """Celery broker/backend settings."""
+
+    model_config = _ENV_CONFIG
+
+    BROKER_URL: str = Field(default="redis://localhost:6379/0", validation_alias="CELERY_BROKER_URL")
+    RESULT_BACKEND: str = Field(default="redis://localhost:6379/1", validation_alias="CELERY_RESULT_BACKEND")
+    TASK_ALWAYS_EAGER: bool = Field(default=False, validation_alias="CELERY_TASK_ALWAYS_EAGER")
+    TASK_TIME_LIMIT: int = Field(default=300, validation_alias="CELERY_TASK_TIME_LIMIT")
+    TIMEZONE: str = Field(default="UTC", validation_alias="CELERY_TIMEZONE")

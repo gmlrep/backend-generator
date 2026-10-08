@@ -1,0 +1,1 @@
+    redis_client = providers.Singleton(RedisClient, url=settings.redis.url, default_ttl=settings.redis.DEFAULT_TTL)

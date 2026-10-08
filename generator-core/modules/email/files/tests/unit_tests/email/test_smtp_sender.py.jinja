@@ -1,0 +1,22 @@
+import aiosmtplib
+
+from {{project_name}}.adapters.email.smtp_sender import SMTPEmailSender
+
+
+async def test_smtp_sender_builds_message(monkeypatch) -> None:
+    sent: dict[str, object] = {}
+
+    async def fake_send(message, **kwargs) -> None:
+        sent["message"] = message
+        sent["kwargs"] = kwargs
+
+    monkeypatch.setattr(aiosmtplib, "send", fake_send)
+
+    sender = SMTPEmailSender(host="smtp.test", port=2525, sender="from@test.io", start_tls=False)
+    await sender.send(to="user@test.io", subject="Hi", body="Hello")
+
+    message = sent["message"]
+    assert message["To"] == "user@test.io"  # type: ignore[index]
+    assert message["Subject"] == "Hi"  # type: ignore[index]
+    assert sent["kwargs"]["hostname"] == "smtp.test"  # type: ignore[index]
+    assert sent["kwargs"]["port"] == 2525  # type: ignore[index]

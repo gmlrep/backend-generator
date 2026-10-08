@@ -1,0 +1,29 @@
+from collections.abc import Awaitable, Callable
+
+from fastapi import Depends, Request
+
+from {{project_name}}.core.dependencies import get_current_active_user
+from {{project_name}}.core.exceptions import AuthError
+from {{project_name}}.schema.user import User
+
+
+def require_permission(permission_code: str) -> Callable[..., Awaitable[User]]:
+    """FastAPI dependency factory guarding a route with a permission code.
+
+    Usage::
+
+        @router.get("/admin", dependencies=[Depends(require_permission("admin:read"))])
+        async def admin() -> ...:
+            ...
+    """
+
+    async def dependency(
+        request: Request,
+        current_user: User = Depends(get_current_active_user),
+    ) -> User:
+        service = request.app.state.container.permission_service()
+        if not await service.has_permission(current_user.id, permission_code):
+            raise AuthError("Permission denied")
+        return current_user
+
+    return dependency

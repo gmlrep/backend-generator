@@ -1,0 +1,29 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class RedisSettings(BaseSettings):
+    """Redis connection settings.
+
+    Either ``REDIS_URL`` or the discrete ``REDIS_HOST``/``REDIS_PORT``/``REDIS_DB``
+    values may be used. The URL wins when present.
+    """
+
+    model_config = _ENV_CONFIG
+
+    HOST: str = Field(default="localhost", validation_alias="REDIS_HOST")
+    PORT: int = Field(default=6379, validation_alias="REDIS_PORT")
+    DB: int = Field(default=0, validation_alias="REDIS_DB")
+    PASSWORD: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
+    URL: str | None = Field(default=None, validation_alias="REDIS_URL")
+    DEFAULT_TTL: int | None = Field(default=3600, validation_alias="REDIS_DEFAULT_TTL")
+
+    @property
+    def url(self) -> str:
+        if self.URL:
+            return self.URL
+        auth = f":{self.PASSWORD}@" if self.PASSWORD else ""
+        return f"redis://{auth}{self.HOST}:{self.PORT}/{self.DB}"

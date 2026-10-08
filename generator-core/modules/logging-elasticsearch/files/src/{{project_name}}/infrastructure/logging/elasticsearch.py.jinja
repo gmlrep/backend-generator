@@ -1,0 +1,15 @@
+from elasticsearch import Elasticsearch
+
+
+class ElasticsearchLogSink:
+    """``LogSink`` implementation that indexes log messages in Elasticsearch."""
+
+    def __init__(self, url: str, index: str = "app-logs") -> None:
+        self.index = index
+        self._client = Elasticsearch(url)
+
+    def write(self, message: str) -> None:
+        self._client.index(index=self.index, document={"message": message})
+
+    def close(self) -> None:
+        self._client.close()

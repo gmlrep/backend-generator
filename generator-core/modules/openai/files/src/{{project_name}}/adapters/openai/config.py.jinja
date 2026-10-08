@@ -1,0 +1,15 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class OpenAISettings(BaseSettings):
+    """Settings for the OpenAI-compatible adapter."""
+
+    model_config = _ENV_CONFIG
+
+    API_KEY: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    BASE_URL: str | None = Field(default="https://api.openai.com/v1", validation_alias="OPENAI_BASE_URL")
+    MODEL: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")

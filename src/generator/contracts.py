@@ -18,14 +18,26 @@ class Contract:
 BUILTIN_CONTRACTS: Final[tuple[Contract, ...]] = (
     Contract(name="EXTENSION_ROUTERS", path="src/{{project_name}}/api/v1/routes.py", version="1.0"),
     Contract(name="EXTENSION_MODELS", path="src/{{project_name}}/model/__init__.py", version="1.0"),
+    Contract(name="EXTENSION_TASKS", path="src/{{project_name}}/tasks/__init__.py", version="1.0"),
     Contract(name="EXTENSION_CONFIG_IMPORTS", path="src/{{project_name}}/core/config.py", version="1.0"),
+    Contract(name="EXTENSION_CONFIG_CLASSES", path="src/{{project_name}}/core/config.py", version="1.0"),
     Contract(name="EXTENSION_SETTINGS", path="src/{{project_name}}/core/config.py", version="1.0"),
     Contract(name="EXTENSION_VALIDATION", path="src/{{project_name}}/core/config.py", version="1.0"),
     Contract(name="EXTENSION_CONTAINER_IMPORTS", path="src/{{project_name}}/core/container.py", version="1.0"),
     Contract(name="EXTENSION_CONTAINER_SERVICES", path="src/{{project_name}}/core/container.py", version="1.0"),
     Contract(name="EXTENSION_CONTAINER_WIRING", path="src/{{project_name}}/core/container.py", version="1.0"),
     Contract(name="EXTENSION_DEPENDENCIES", path="src/{{project_name}}/core/dependencies.py", version="1.0"),
+    Contract(name="EXTENSION_MIDDLEWARE", path="src/{{project_name}}/__main__.py", version="1.0"),
+    Contract(name="EXTENSION_MAIN_IMPORTS", path="src/{{project_name}}/__main__.py", version="1.0"),
+    Contract(name="EXTENSION_APP_SETUP", path="src/{{project_name}}/__main__.py", version="1.0"),
+    Contract(name="EXTENSION_MAKE", path="Makefile", version="1.0"),
+    Contract(name="EXTENSION_LIFESPAN_IMPORTS", path="src/{{project_name}}/core/lifespan.py", version="1.0"),
+    Contract(name="EXTENSION_LIFESPAN_STARTUP", path="src/{{project_name}}/core/lifespan.py", version="1.0"),
+    Contract(name="EXTENSION_LIFESPAN_SHUTDOWN", path="src/{{project_name}}/core/lifespan.py", version="1.0"),
     Contract(name="EXTENSION_COMPOSE_ENV", path="docker-compose.yml", version="1.0"),
+    Contract(name="EXTENSION_COMPOSE_SERVICES", path="docker-compose.yml", version="1.0"),
+    Contract(name="EXTENSION_COMPOSE_DEPENDS_ON", path="docker-compose.yml", version="1.0"),
+    Contract(name="EXTENSION_COMPOSE_VOLUMES", path="docker-compose.yml", version="1.0"),
 )
 
 MARKER_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[ \t]*#[ \t]*(EXTENSION_\w+)[ \t]*$", re.MULTILINE)

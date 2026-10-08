@@ -7,6 +7,7 @@ from {{project_name}}.core.security import get_password_hash
 from {{project_name}}.model.user import User as UserModel
 from {{project_name}}.schema.auth import SignIn, SignUp
 from {{project_name}}.services.auth import AuthService
+from {{project_name}}.services.token_store import InMemoryTokenStore
 
 
 def _user(password: str) -> UserModel:
@@ -33,40 +34,74 @@ class _FakeUserRepository:
     async def read_by_options(self, schema) -> dict:
         return {"founds": [self.found] if self.found else []}
 
+    async def read_by_id(self, id: int) -> UserModel | None:
+        if self.found is not None and self.found.id == id:
+            return self.found
+        return None
+
     async def create(self, model: UserModel) -> UserModel:
         self.created = model
         model.id = 1
         return model
 
 
-async def test_sign_in_success() -> None:
+def _service(repository: _FakeUserRepository) -> AuthService:
+    return AuthService(repository, InMemoryTokenStore())
+
+
+async def test_sign_in_returns_access_and_refresh_tokens() -> None:
     hashed = await get_password_hash("plain")
-    service = AuthService(_FakeUserRepository(found=_user(hashed)))
+    service = _service(_FakeUserRepository(found=_user(hashed)))
 
     result = await service.sign_in(SignIn(email="user@test.io", password="plain"))
 
     assert result.access_token
+    assert result.refresh_token
+    assert result.token_type == "bearer"
     assert result.user_info.email == "user@test.io"
 
 
 async def test_sign_in_wrong_password() -> None:
     hashed = await get_password_hash("plain")
-    service = AuthService(_FakeUserRepository(found=_user(hashed)))
+    service = _service(_FakeUserRepository(found=_user(hashed)))
 
     with pytest.raises(AuthError):
         await service.sign_in(SignIn(email="user@test.io", password="nope"))
 
 
 async def test_sign_in_unknown_user() -> None:
-    service = AuthService(_FakeUserRepository(found=None))
+    service = _service(_FakeUserRepository(found=None))
 
     with pytest.raises(AuthError):
         await service.sign_in(SignIn(email="nobody@test.io", password="x"))
 
 
+async def test_refresh_rotates_and_revokes_old_token() -> None:
+    hashed = await get_password_hash("plain")
+    service = _service(_FakeUserRepository(found=_user(hashed)))
+    first = await service.sign_in(SignIn(email="user@test.io", password="plain"))
+
+    second = await service.refresh(first.refresh_token)
+
+    assert second.access_token
+    with pytest.raises(AuthError):
+        await service.refresh(first.refresh_token)
+
+
+async def test_logout_revokes_refresh_token() -> None:
+    hashed = await get_password_hash("plain")
+    service = _service(_FakeUserRepository(found=_user(hashed)))
+    tokens = await service.sign_in(SignIn(email="user@test.io", password="plain"))
+
+    await service.logout(tokens.refresh_token)
+
+    with pytest.raises(AuthError):
+        await service.refresh(tokens.refresh_token)
+
+
 async def test_sign_up_hashes_password_and_sets_token() -> None:
     repository = _FakeUserRepository()
-    service = AuthService(repository)
+    service = _service(repository)
 
     created = await service.sign_up(SignUp(email="new@test.io", password="plain", name="New"))
 

@@ -1,0 +1,51 @@
+from typing import Protocol
+
+from {{project_name}}.infrastructure.redis.client import RedisClient
+
+
+class MfaCodeStore(Protocol):
+    """Port for short-lived one-time codes (email MFA)."""
+
+    async def set_code(self, user_id: int, code: str, ttl_seconds: int) -> None: ...
+
+    async def get_code(self, user_id: int) -> str | None: ...
+
+    async def delete_code(self, user_id: int) -> None: ...
+
+
+class InMemoryMfaCodeStore:
+    def __init__(self) -> None:
+        self._codes: dict[int, str] = {}
+
+    async def set_code(self, user_id: int, code: str, ttl_seconds: int) -> None:
+        self._codes[user_id] = code
+
+    async def get_code(self, user_id: int) -> str | None:
+        return self._codes.get(user_id)
+
+    async def delete_code(self, user_id: int) -> None:
+        self._codes.pop(user_id, None)
+
+
+class RedisMfaCodeStore:
+    def __init__(self, redis_client: RedisClient) -> None:
+        self.redis_client = redis_client
+
+    @staticmethod
+    def _key(user_id: int) -> str:
+        return f"mfa:email:{user_id}"
+
+    async def set_code(self, user_id: int, code: str, ttl_seconds: int) -> None:
+        await self.redis_client.set(self._key(user_id), code, ttl=ttl_seconds)
+
+    async def get_code(self, user_id: int) -> str | None:
+        return await self.redis_client.get(self._key(user_id))
+
+    async def delete_code(self, user_id: int) -> None:
+        await self.redis_client.delete(self._key(user_id))
+
+
+def create_mfa_code_store(redis_client: RedisClient, use_memory: bool) -> MfaCodeStore:
+    if use_memory:
+        return InMemoryMfaCodeStore()
+    return RedisMfaCodeStore(redis_client)

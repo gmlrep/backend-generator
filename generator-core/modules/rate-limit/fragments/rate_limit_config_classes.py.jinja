@@ -1,0 +1,8 @@
+class RateLimitSettings(BaseSettings):
+    """Global rate limiting settings."""
+
+    model_config = _ENV_CONFIG
+
+    ENABLED: bool = Field(default=True, validation_alias="RATE_LIMIT_ENABLED")
+    REQUESTS: int = Field(default=100, validation_alias="RATE_LIMIT_REQUESTS")
+    WINDOW_SECONDS: int = Field(default=60, validation_alias="RATE_LIMIT_WINDOW_SECONDS")

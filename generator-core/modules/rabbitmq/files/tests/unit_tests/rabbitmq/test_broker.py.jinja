@@ -1,0 +1,26 @@
+from faststream.rabbit import RabbitBroker
+
+from {{project_name}}.infrastructure.messaging import MessageBroker
+from {{project_name}}.infrastructure.rabbitmq.broker import create_rabbitmq_broker
+
+
+def test_factory_returns_universal_broker() -> None:
+    broker = create_rabbitmq_broker("amqp://guest:guest@localhost:5672/")
+
+    assert isinstance(broker, MessageBroker)
+    assert isinstance(broker.raw, RabbitBroker)
+
+
+def test_url_uses_discrete_settings() -> None:
+    from {{project_name}}.infrastructure.rabbitmq.config import RabbitMQSettings
+
+    settings = RabbitMQSettings(
+        RABBITMQ_URL="",
+        RABBITMQ_HOST="broker",
+        RABBITMQ_PORT=5673,
+        RABBITMQ_USER="app",
+        RABBITMQ_PASSWORD="secret",
+        RABBITMQ_VHOST="prod",
+    )
+
+    assert settings.url == "amqp://app:secret@broker:5673/prod"

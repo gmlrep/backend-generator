@@ -37,13 +37,17 @@ COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --chown=appuser:appgroup src ./src
 COPY --chown=appuser:appgroup alembic.ini ./
 COPY --chown=appuser:appgroup migrations ./migrations
+COPY --chown=appuser:appgroup docker-entrypoint.sh ./
+
+RUN chmod +x docker-entrypoint.sh
 
 USER appuser
 
 EXPOSE 9000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import os, urllib.request; port = os.getenv('API_PORT', '9000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')"
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["{{project_name}}"]
 

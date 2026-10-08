@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import builtins
+import json
+from typing import Any, cast
+
+from redis.asyncio import Redis
+
+
+class RedisClient:
+    """Thin async wrapper around ``redis.asyncio.Redis``.
+
+    Only the operations the service layer needs are exposed. The connection is
+    created lazily by redis-py on the first command, so constructing the client
+    never performs I/O.
+    """
+
+    def __init__(self, url: str, default_ttl: int | None = None) -> None:
+        self._client = Redis.from_url(url, decode_responses=True)
+        self._default_ttl = default_ttl
+
+    @property
+    def raw(self) -> Redis:
+        """The underlying redis-py client, for advanced use cases."""
+        return self._client
+
+    async def ping(self) -> bool:
+        return bool(await self._client.ping())
+
+    async def get(self, key: str) -> str | None:
+        return cast("str | None", await self._client.get(key))
+
+    async def set(self, key: str, value: str, ttl: int | None = None) -> None:
+        await self._client.set(key, value, ex=ttl if ttl is not None else self._default_ttl)
+
+    async def get_json(self, key: str) -> Any | None:
+        raw = await self._client.get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    async def set_json(self, key: str, value: Any, ttl: int | None = None) -> None:
+        await self.set(key, json.dumps(value), ttl=ttl)
+
+    async def delete(self, *keys: str) -> int:
+        if not keys:
+            return 0
+        return int(await self._client.delete(*keys))
+
+    async def exists(self, key: str) -> bool:
+        return bool(await self._client.exists(key))
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return bool(await self._client.expire(key, ttl))
+
+    async def incr(self, key: str, amount: int = 1) -> int:
+        return int(await self._client.incrby(key, amount))
+
+    async def sadd(self, key: str, *values: str) -> int:
+        if not values:
+            return 0
+        return int(await self._client.sadd(key, *values))
+
+    async def smembers(self, key: str) -> builtins.set[str]:
+        return cast("builtins.set[str]", await self._client.smembers(key))
+
+    async def srem(self, key: str, *values: str) -> int:
+        if not values:
+            return 0
+        return int(await self._client.srem(key, *values))
+
+    async def publish(self, channel: str, message: str) -> int:
+        return int(await self._client.publish(channel, message))
+
+    async def close(self) -> None:
+        await self._client.aclose()

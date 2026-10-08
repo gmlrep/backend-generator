@@ -1,0 +1,13 @@
+from {{project_name}}.adapters.s3.interface import ObjectStorage
+
+
+class StorageService:
+    def __init__(self, storage: ObjectStorage) -> None:
+        self.storage = storage
+
+    async def save_text(self, key: str, text: str) -> str:
+        return await self.storage.upload(key, text.encode("utf-8"), content_type="text/plain; charset=utf-8")
+
+    async def read_text(self, key: str) -> str:
+        data = await self.storage.download(key)
+        return data.decode("utf-8")

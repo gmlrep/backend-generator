@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    echo "[entrypoint] checking database schema ..."
+    python -m {{project_name}}.scripts.init_db
+fi
+
+exec "$@"

@@ -1,0 +1,14 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class MfaSetupResponse(BaseSchema):
+    secret: str
+    otpauth_url: str
+
+
+class MfaCodeRequest(BaseSchema):
+    code: str
+
+
+class MfaStatusResponse(BaseSchema):
+    is_enabled: bool

@@ -1,0 +1,18 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class S3Settings(BaseSettings):
+    """S3-compatible object storage settings."""
+
+    model_config = _ENV_CONFIG
+
+    BUCKET: str = Field(default="app-bucket", validation_alias="S3_BUCKET")
+    ACCESS_KEY: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY")
+    SECRET_KEY: str | None = Field(default=None, validation_alias="S3_SECRET_KEY")
+    ENDPOINT_URL: str | None = Field(default=None, validation_alias="S3_ENDPOINT_URL")
+    REGION: str = Field(default="us-east-1", validation_alias="S3_REGION")
+    USE_SSL: bool = Field(default=True, validation_alias="S3_USE_SSL")

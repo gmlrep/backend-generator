@@ -1,0 +1,85 @@
+from typing import Protocol
+
+from {{project_name}}.infrastructure.redis.client import RedisClient
+
+
+class TokenStore(Protocol):
+    """Port for refresh-token state.
+
+    Refresh tokens are opaque beyond their JWT signature: the store decides
+    whether a token id (``jti``) is still valid, which makes logout/rotation
+    possible. The Redis implementation is used in production; tests use the
+    in-memory one so the suite needs no external services.
+    """
+
+    async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None: ...
+
+    async def is_refresh_valid(self, jti: str) -> bool: ...
+
+    async def revoke_refresh(self, jti: str) -> None: ...
+
+    async def revoke_all(self, user_id: int) -> None: ...
+
+
+class InMemoryTokenStore:
+    """Process-local store used in tests and single-process dev setups."""
+
+    def __init__(self) -> None:
+        self._tokens: dict[str, int] = {}
+        self._by_user: dict[int, set[str]] = {}
+
+    async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None:
+        self._tokens[jti] = user_id
+        self._by_user.setdefault(user_id, set()).add(jti)
+
+    async def is_refresh_valid(self, jti: str) -> bool:
+        return jti in self._tokens
+
+    async def revoke_refresh(self, jti: str) -> None:
+        user_id = self._tokens.pop(jti, None)
+        if user_id is not None:
+            self._by_user.get(user_id, set()).discard(jti)
+
+    async def revoke_all(self, user_id: int) -> None:
+        for jti in self._by_user.get(user_id, set()):
+            self._tokens.pop(jti, None)
+        self._by_user.pop(user_id, None)
+
+
+class RedisTokenStore:
+    """Redis-backed refresh-token store with per-user revocation."""
+
+    def __init__(self, redis_client: RedisClient) -> None:
+        self.redis_client = redis_client
+
+    @staticmethod
+    def _key(jti: str) -> str:
+        return f"auth:refresh:{jti}"
+
+    @staticmethod
+    def _user_key(user_id: int) -> str:
+        return f"auth:user_refresh:{user_id}"
+
+    async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None:
+        await self.redis_client.set(self._key(jti), str(user_id), ttl=ttl_seconds)
+        await self.redis_client.sadd(self._user_key(user_id), jti)
+
+    async def is_refresh_valid(self, jti: str) -> bool:
+        return bool(await self.redis_client.exists(self._key(jti)))
+
+    async def revoke_refresh(self, jti: str) -> None:
+        user_id = await self.redis_client.get(self._key(jti))
+        await self.redis_client.delete(self._key(jti))
+        if user_id is not None:
+            await self.redis_client.srem(self._user_key(int(user_id)), jti)
+
+    async def revoke_all(self, user_id: int) -> None:
+        for jti in await self.redis_client.smembers(self._user_key(user_id)):
+            await self.redis_client.delete(self._key(jti))
+        await self.redis_client.delete(self._user_key(user_id))
+
+
+def create_token_store(redis_client: RedisClient, use_memory: bool) -> TokenStore:
+    if use_memory:
+        return InMemoryTokenStore()
+    return RedisTokenStore(redis_client)

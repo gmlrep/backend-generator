@@ -1,0 +1,12 @@
+from typing import Protocol
+
+
+class EmailSender(Protocol):
+    """Port for outbound email.
+
+    Business code depends on this protocol, never on a concrete transport, so
+    the SMTP implementation can be swapped for a test fake or a hosted email
+    provider without touching the service layer.
+    """
+
+    async def send(self, to: str, subject: str, body: str) -> None: ...

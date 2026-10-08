@@ -1,0 +1,10 @@
+from {{project_name}}.infrastructure.celery.app import create_celery_app
+
+
+def test_celery_app_configuration() -> None:
+    app = create_celery_app()
+
+    assert app.conf.task_serializer == "json"
+    assert app.conf.result_serializer == "json"
+    assert app.conf.enable_utc is True
+    assert app.conf.timezone == "UTC"

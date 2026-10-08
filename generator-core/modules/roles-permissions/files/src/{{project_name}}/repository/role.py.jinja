@@ -1,0 +1,14 @@
+from sqlalchemy import select
+
+from {{project_name}}.model.role import Role
+from {{project_name}}.repository.base import BaseRepository
+
+
+class RoleRepository(BaseRepository[Role]):
+    model = Role
+
+    async def read_by_name(self, name: str) -> Role | None:
+        async with self.session_factory() as session:
+            stmt = select(Role).where(Role.name == name)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()

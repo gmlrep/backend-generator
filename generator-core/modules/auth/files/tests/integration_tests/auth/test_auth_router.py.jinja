@@ -14,12 +14,64 @@ async def test_sign_up_sign_in_and_me(client: AsyncClient) -> None:
         json={"email": "user@test.io", "password": "plain"},
     )
     assert response.status_code == 200, response.text
-    token = response.json()["access_token"]
-    assert token
+    tokens = response.json()
+    assert tokens["access_token"]
+    assert tokens["refresh_token"]
 
-    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
     assert response.status_code == 200, response.text
     assert response.json()["email"] == "user@test.io"
+
+
+async def test_oauth2_password_flow(client: AsyncClient) -> None:
+    await client.post(
+        "/api/v1/auth/sign-up",
+        json={"email": "oauth@test.io", "password": "plain", "name": "OAuth"},
+    )
+
+    response = await client.post(
+        "/api/v1/auth/token",
+        data={"username": "oauth@test.io", "password": "plain"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["access_token"]
+
+
+async def test_refresh_rotates_the_token(client: AsyncClient) -> None:
+    await client.post(
+        "/api/v1/auth/sign-up",
+        json={"email": "rotate@test.io", "password": "plain", "name": "Rotate"},
+    )
+    sign_in = await client.post(
+        "/api/v1/auth/sign-in",
+        json={"email": "rotate@test.io", "password": "plain"},
+    )
+    refresh_token = sign_in.json()["refresh_token"]
+
+    rotated = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert rotated.status_code == 200, rotated.text
+    assert rotated.json()["refresh_token"] != refresh_token
+
+    reused = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert reused.status_code == 401
+
+
+async def test_logout_revokes_the_refresh_token(client: AsyncClient) -> None:
+    await client.post(
+        "/api/v1/auth/sign-up",
+        json={"email": "logout@test.io", "password": "plain", "name": "Logout"},
+    )
+    sign_in = await client.post(
+        "/api/v1/auth/sign-in",
+        json={"email": "logout@test.io", "password": "plain"},
+    )
+    refresh_token = sign_in.json()["refresh_token"]
+
+    assert (await client.post("/api/v1/auth/logout", json={"refresh_token": refresh_token})).status_code == 204
+
+    response = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert response.status_code == 401
 
 
 async def test_sign_in_wrong_password_is_unauthorized(client: AsyncClient) -> None:

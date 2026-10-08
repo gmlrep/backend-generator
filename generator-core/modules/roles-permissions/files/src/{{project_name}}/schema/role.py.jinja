@@ -1,0 +1,21 @@
+from pydantic import Field
+
+from {{project_name}}.schema.base import BaseSchema
+
+
+class RoleCreate(BaseSchema):
+    name: str
+    description: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleRead(BaseSchema):
+    id: int | None = None
+    name: str
+    description: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class AssignRoleRequest(BaseSchema):
+    user_id: int
+    role: str

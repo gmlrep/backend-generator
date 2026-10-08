@@ -1,0 +1,15 @@
+.PHONY: prod-build prod-up prod-down prod-logs prod-restart
+prod-build: ## Build the production images
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml build
+
+prod-up: ## Start the production stack (API behind Caddy, no public API port)
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+prod-down: ## Stop the production stack
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml down
+
+prod-restart: ## Recreate the production stack
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
+
+prod-logs: ## Follow production logs
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml logs -f

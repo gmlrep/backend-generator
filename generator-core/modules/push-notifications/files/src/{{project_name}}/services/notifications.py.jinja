@@ -1,0 +1,30 @@
+from {{project_name}}.adapters.firebase.interface import PushSender
+
+
+class NotificationService:
+    def __init__(self, push_sender: PushSender) -> None:
+        self.push_sender = push_sender
+
+    async def notify_user(
+        self,
+        user_token: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str:
+        return await self.push_sender.send_to_user(user_token, title, body, data)
+
+    async def notify_topic(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str:
+        return await self.push_sender.send_to_topic(topic, title, body, data)
+
+    async def subscribe_to_topic(self, topic: str, tokens: list[str]) -> None:
+        await self.push_sender.subscribe(topic, tokens)
+
+    async def unsubscribe_from_topic(self, topic: str, tokens: list[str]) -> None:
+        await self.push_sender.unsubscribe(topic, tokens)

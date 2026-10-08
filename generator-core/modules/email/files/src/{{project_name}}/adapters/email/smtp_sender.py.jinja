@@ -1,0 +1,39 @@
+from email.message import EmailMessage
+
+import aiosmtplib
+
+
+class SMTPEmailSender:
+    """``EmailSender`` implementation backed by ``aiosmtplib``."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 587,
+        username: str | None = None,
+        password: str | None = None,
+        sender: str = "noreply@example.com",
+        start_tls: bool = True,
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.username = username or None
+        self.password = password or None
+        self.sender = sender
+        self.start_tls = start_tls
+
+    async def send(self, to: str, subject: str, body: str) -> None:
+        message = EmailMessage()
+        message["From"] = self.sender
+        message["To"] = to
+        message["Subject"] = subject
+        message.set_content(body)
+
+        await aiosmtplib.send(
+            message,
+            hostname=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            start_tls=self.start_tls if self.start_tls else None,
+        )

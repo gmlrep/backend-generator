@@ -1,0 +1,7 @@
+    if settings.elasticsearch.ENABLED:
+        elasticsearch_sink = ElasticsearchLogSink(
+            url=settings.elasticsearch.URL,
+            index=settings.elasticsearch.INDEX,
+        )
+        app.state.elasticsearch_sink = elasticsearch_sink
+        app.state.elasticsearch_handler_id = add_log_sink(elasticsearch_sink, level=settings.elasticsearch.LEVEL)

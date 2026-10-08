@@ -1,0 +1,25 @@
+manifest_version: "1"
+id: users-profiles
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - auth
+conflicts: []
+python_dependencies: []
+patches:
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/users_router.py.jinja
+  - target: src/{{project_name}}/model/__init__.py
+    marker: EXTENSION_MODELS
+    fragment: fragments/users_models.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/users_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/users_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/users_container_wiring.py.jinja

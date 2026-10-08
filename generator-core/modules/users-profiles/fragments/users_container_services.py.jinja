@@ -1,0 +1,3 @@
+    profile_repository = providers.Factory(ProfileRepository, session_factory=db.provided.session)
+
+    users_service = providers.Factory(UsersService, profile_repository=profile_repository)

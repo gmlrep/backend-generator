@@ -1,0 +1,25 @@
+from typing import Protocol
+
+
+class PushSender(Protocol):
+    """Port for push notifications (Firebase in production)."""
+
+    async def send_to_user(
+        self,
+        user_token: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str: ...
+
+    async def send_to_topic(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> str: ...
+
+    async def subscribe(self, topic: str, tokens: list[str]) -> None: ...
+
+    async def unsubscribe(self, topic: str, tokens: list[str]) -> None: ...

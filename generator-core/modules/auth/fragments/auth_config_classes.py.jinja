@@ -1,14 +1,6 @@
-from pathlib import Path
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 ROOT_DIR = Path(__file__).resolve().parents[3]
 
 INSECURE_DEFAULT = "change-me-in-production"
-
-_ENV_FILE = ".env"
-_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
 
 
 class SecuritySettings(BaseSettings):
@@ -23,6 +15,7 @@ class SecuritySettings(BaseSettings):
     JWT_SECRET: str = Field(default=INSECURE_DEFAULT, validation_alias="JWT_SECRET")
     JWT_ALGORITHM: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
     JWT_EXPIRES_MINUTES: int = Field(default=30, validation_alias="JWT_EXPIRES_MINUTES")
+    JWT_REFRESH_EXPIRES_DAYS: int = Field(default=7, validation_alias="JWT_REFRESH_EXPIRES_DAYS")
 
     JWT_PRIVATE_KEY_PATH: Path = Field(
         default=ROOT_DIR / "certs" / "jwt-private.pem", validation_alias="JWT_PRIVATE_KEY_PATH"

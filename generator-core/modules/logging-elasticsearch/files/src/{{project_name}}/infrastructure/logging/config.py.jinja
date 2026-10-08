@@ -1,0 +1,16 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class ElasticsearchSettings(BaseSettings):
+    """Elasticsearch log shipping settings."""
+
+    model_config = _ENV_CONFIG
+
+    ENABLED: bool = Field(default=False, validation_alias="ELASTICSEARCH_ENABLED")
+    URL: str = Field(default="http://localhost:9200", validation_alias="ELASTICSEARCH_URL")
+    INDEX: str = Field(default="app-logs", validation_alias="ELASTICSEARCH_INDEX")
+    LEVEL: str = Field(default="INFO", validation_alias="ELASTICSEARCH_LEVEL")

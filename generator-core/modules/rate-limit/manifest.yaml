@@ -1,0 +1,29 @@
+manifest_version: "1"
+id: rate-limit
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - redis
+conflicts: []
+python_dependencies: []
+env_example:
+  - "RATE_LIMIT_ENABLED=true"
+  - "RATE_LIMIT_REQUESTS=100"
+  - "RATE_LIMIT_WINDOW_SECONDS=60"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_CLASSES
+    fragment: fragments/rate_limit_config_classes.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/rate_limit_config_settings.py.jinja
+  - target: src/{{project_name}}/__main__.py
+    marker: EXTENSION_MAIN_IMPORTS
+    fragment: fragments/rate_limit_main_imports.py.jinja
+  - target: src/{{project_name}}/__main__.py
+    marker: EXTENSION_MIDDLEWARE
+    fragment: fragments/rate_limit_middleware.py.jinja
+  - target: src/{{project_name}}/core/dependencies.py
+    marker: EXTENSION_DEPENDENCIES
+    fragment: fragments/rate_limit_dependencies.py.jinja

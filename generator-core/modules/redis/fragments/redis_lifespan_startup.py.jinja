@@ -1,0 +1,8 @@
+    container = getattr(app.state, "container", None)
+    if container is not None:
+        redis_client = container.redis_client()
+        app.state.redis_client = redis_client
+        try:
+            await redis_client.ping()
+        except Exception as exc:
+            logger.warning("Redis is not reachable at startup: {}", exc)

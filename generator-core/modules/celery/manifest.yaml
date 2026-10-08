@@ -1,0 +1,35 @@
+manifest_version: "1"
+id: celery
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - redis
+conflicts: []
+python_dependencies:
+  - "celery[redis]>=5.4"
+env_example:
+  - "CELERY_BROKER_URL=redis://localhost:6379/0"
+  - "CELERY_RESULT_BACKEND=redis://localhost:6379/1"
+  - "CELERY_TASK_ALWAYS_EAGER=false"
+  - "CELERY_TASK_TIME_LIMIT=300"
+  - "CELERY_TIMEZONE=UTC"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/celery_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/celery_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/celery_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/celery_container_services.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/celery_compose_env.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/celery_compose_service.py.jinja

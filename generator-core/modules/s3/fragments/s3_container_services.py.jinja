@@ -1,0 +1,10 @@
+    object_storage = providers.Singleton(
+        S3Storage,
+        bucket=settings.s3.BUCKET,
+        access_key=settings.s3.ACCESS_KEY,
+        secret_key=settings.s3.SECRET_KEY,
+        endpoint_url=settings.s3.ENDPOINT_URL,
+        region=settings.s3.REGION,
+        use_ssl=settings.s3.USE_SSL,
+    )
+    storage_service = providers.Factory(StorageService, storage=object_storage)

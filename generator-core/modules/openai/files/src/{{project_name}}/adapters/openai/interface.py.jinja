@@ -1,0 +1,7 @@
+from typing import Protocol
+
+
+class TextGenerator(Protocol):
+    """Port for text generation. Accepts any OpenAI-compatible backend."""
+
+    async def generate(self, prompt: str, *, system: str | None = None) -> str: ...

@@ -1,0 +1,86 @@
+import pyotp
+import pytest
+
+from {{project_name}}.core.exceptions import AuthError
+from {{project_name}}.model.mfa import MfaCredential
+from {{project_name}}.schema.user import User
+from {{project_name}}.services.mfa import MfaService
+from {{project_name}}.services.mfa_code_store import InMemoryMfaCodeStore
+
+
+class _FakeEmailSender:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    async def send(self, to: str, subject: str, body: str) -> None:
+        self.sent.append((to, subject, body))
+
+
+class _FakeMfaRepository:
+    def __init__(self) -> None:
+        self.credential: MfaCredential | None = None
+        self._next_id = 1
+
+    async def read_by_user_id(self, user_id: int) -> MfaCredential | None:
+        if self.credential is not None and self.credential.user_id == user_id:
+            return self.credential
+        return None
+
+    async def create(self, model: MfaCredential) -> MfaCredential:
+        model.id = self._next_id
+        self._next_id += 1
+        self.credential = model
+        return model
+
+    async def update_by_id(self, id: int, obj: dict) -> MfaCredential | None:
+        if self.credential is not None:
+            for key, value in obj.items():
+                setattr(self.credential, key, value)
+        return self.credential
+
+
+def _user() -> User:
+    return User(id=1, email="user@test.io", name="User", is_active=True, is_superuser=False)
+
+
+def _service() -> MfaService:
+    return MfaService(_FakeMfaRepository(), _FakeEmailSender(), InMemoryMfaCodeStore())
+
+
+async def test_setup_returns_otpauth_url() -> None:
+    service = _service()
+
+    result = await service.setup(_user())
+
+    assert result.secret
+    assert "otpauth://totp/" in result.otpauth_url
+    assert await service.status(1) is False
+
+
+async def test_enable_with_valid_totp() -> None:
+    service = _service()
+    setup = await service.setup(_user())
+    code = pyotp.TOTP(setup.secret, interval=30).now()
+
+    assert await service.enable(1, code) is True
+    assert await service.status(1) is True
+
+
+async def test_enable_with_invalid_code() -> None:
+    service = _service()
+    await service.setup(_user())
+
+    with pytest.raises(AuthError):
+        await service.enable(1, "000000")
+
+
+async def test_email_code_roundtrip_is_single_use() -> None:
+    service = _service()
+    email_sender = service.email_sender
+    await service.send_email_code(_user())
+    assert email_sender.sent  # type: ignore[attr-defined]
+    code = email_sender.sent[0][2].split()[-1].rstrip(".")  # type: ignore[attr-defined]
+
+    assert await service.verify_email_code(1, code) is True
+    with pytest.raises(AuthError):
+        await service.verify_email_code(1, code)

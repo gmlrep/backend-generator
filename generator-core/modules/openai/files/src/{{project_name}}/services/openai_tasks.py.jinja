@@ -1,0 +1,15 @@
+from {{project_name}}.adapters.openai.interface import TextGenerator
+
+
+class OpenAIService:
+    def __init__(self, text_generator: TextGenerator) -> None:
+        self.text_generator = text_generator
+
+    async def summarize(self, text: str) -> str:
+        return await self.text_generator.generate(
+            f"Summarize the following text in a few sentences:\n\n{text}",
+            system="You are a concise assistant.",
+        )
+
+    async def complete(self, prompt: str, *, system: str | None = None) -> str:
+        return await self.text_generator.generate(prompt, system=system)

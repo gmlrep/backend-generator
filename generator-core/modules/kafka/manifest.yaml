@@ -1,0 +1,36 @@
+manifest_version: "1"
+id: kafka
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "faststream[kafka]>=0.7"
+env_example:
+  - "KAFKA_BOOTSTRAP_SERVERS=localhost:9092"
+  - "KAFKA_CLIENT_ID={{project_name}}"
+  - "KAFKA_GROUP_ID={{project_name}}"
+  - "KAFKA_USE_SSL=false"
+  - "KAFKA_SASL_MECHANISM="
+  - "KAFKA_SASL_USERNAME="
+  - "KAFKA_SASL_PASSWORD="
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/kafka_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/kafka_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/kafka_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/kafka_container_services.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/kafka_lifespan_startup.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_SHUTDOWN
+    fragment: fragments/kafka_lifespan_shutdown.py.jinja

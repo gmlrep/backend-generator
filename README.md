@@ -7,13 +7,22 @@ stable core template plus declarative module manifests.
 
 - **Fixed extension contracts.** The core template exposes named markers
   (`EXTENSION_ROUTERS`, `EXTENSION_MODELS`, `EXTENSION_CONFIG_IMPORTS`,
-  `EXTENSION_SETTINGS`, `EXTENSION_VALIDATION`, `EXTENSION_CONTAINER_IMPORTS`,
+  `EXTENSION_CONFIG_CLASSES`, `EXTENSION_SETTINGS`, `EXTENSION_VALIDATION`, `EXTENSION_CONTAINER_IMPORTS`,
   `EXTENSION_CONTAINER_SERVICES`, `EXTENSION_CONTAINER_WIRING`,
-  `EXTENSION_DEPENDENCIES`). The generator validates that every marker exists
+  `EXTENSION_DEPENDENCIES`, `EXTENSION_TASKS`, `EXTENSION_MIDDLEWARE`,
+  `EXTENSION_MAIN_IMPORTS`, `EXTENSION_APP_SETUP`,
+  `EXTENSION_LIFESPAN_IMPORTS`, `EXTENSION_LIFESPAN_STARTUP`,
+  `EXTENSION_LIFESPAN_SHUTDOWN`, `EXTENSION_COMPOSE_ENV`,
+  `EXTENSION_COMPOSE_SERVICES`, `EXTENSION_COMPOSE_DEPENDS_ON`,
+  `EXTENSION_COMPOSE_VOLUMES`, `EXTENSION_MAKE`). The generator validates that every marker exists
   exactly once before writing anything.
 - **Auth owns JWT and hashing.** JWT issuance, `JWTBearer`, password hashing
   and the `SecuritySettings` live in the `auth` module, not in core. Core stays
   free of auth-specific code.
+- **Universal message broker facade.** The `rabbitmq` and `kafka` modules
+  both build the dependency-free `MessageBroker` facade
+  (`infrastructure/messaging.py`) on top of FastStream, so services call the
+  same `publish`/`subscribe` API regardless of the transport.
 - **Modules ship their own tests.** Each module contributes unit and
   integration tests under `tests/`. The generated suite runs against an
   in-memory SQLite database, so `pytest` works with no external services.
@@ -36,9 +45,16 @@ stable core template plus declarative module manifests.
 - **Runnable console script.** Generated projects declare `[project.scripts]`,
   so `uv run <project>` starts the service via `main()` (identical to
   `python -m <project>`).
+- **Interactive questionary menu.** The bare `bsg-generator` command opens an
+  arrow-key menu (project name, service profile with module preview, repository
+  host, optional-module checkboxes, venv) instead of numbered prompts.
 - **Makefile included.** Every project ships a `Makefile` with `make help`,
   local (`run`, `dev`, `test`, `lint`, `migrate`) and docker
   (`docker-up`, `docker-down`, `docker-logs`) targets.
+- **Migrations on container start.** The image entrypoint inspects the
+  database: when it has no tables yet it applies `alembic upgrade head`; when
+  the schema is already present it skips migrations. Only the `api` service
+  runs them (`RUN_MIGRATIONS=true`); workers set `RUN_MIGRATIONS=false`.
 - **Git repository by default.** Generated projects are initialized as a git
   repository with an initial commit; pass `--no-git` to opt out. There is no
   interactive prompt for it. If `git` is missing from `PATH`, initialization is
@@ -51,11 +67,19 @@ stable core template plus declarative module manifests.
 ## CLI
 
 ```bash
-# Interactive menu (no arguments)
+# Interactive menu (no arguments) — arrow-key navigation powered by questionary
 uv run bsg-generator
-#   What would you like to do?
-#     1) create
-#   -> project name -> service -> repository host -> create venv?
+#   ? What would you like to do?  create
+#   ? Project name                my_service
+#   ? Select a service to generate: auth-service  redis, auth
+#   ? Which repository host will you use?  github / gitlab
+#   ? Include optional modules ...  (checkbox)
+#   ? Create a virtual environment and install dependencies?  (y/N)
+#
+# Pick "custom" in the service list to choose any combination of modules
+# from a checkbox list (required dependencies are added automatically):
+#   ? Select a service to generate: custom  pick any modules manually
+#   ? Select modules to include ...  (checkbox: auth, items, mfa, kafka, ...)
 
 # Non-interactive (CI). .env.example + ruff always run.
 bsg-generator create \
@@ -82,11 +106,66 @@ bsg-generator list-modules
 generator-core/
   core_template/      # FastAPI core with EXTENSION_* markers
   modules/
-    auth/             # auth module: manifest + files + fragments
+    redis/            # async Redis client + compose service
+    celery/           # Celery app + worker service
+    rate-limit/       # global middleware + per-route dependency
+    auth/             # JWT access/refresh, OAuth2, Basic, Bearer
+    email/            # EmailSender protocol + SMTP adapter
+    mfa/              # TOTP + email one-time codes
+    logging-elasticsearch/  # Loguru sink shipping to Elasticsearch
+    openai/           # OpenAI-compatible text generation adapter
+    s3/               # S3-compatible object storage adapter
+    push-notifications/     # Firebase push adapter + Celery tasks
+    users-profiles/   # user profiles/settings
+    roles-permissions/# roles, permissions and guards
+    flower/           # Flower UI for Celery (optional)
+    celery-beat/      # periodic/cron task scheduler (optional)
+    prometheus/       # /metrics endpoint + Prometheus service
+    caddy/            # production TLS reverse proxy (docker-compose.prod.yml)
+    rabbitmq/         # FastStream RabbitMQ broker + compose service
+    kafka/            # FastStream Kafka broker (external broker only)
   profiles.yaml
 src/generator/        # contracts, manifest, engine, CLI
 tests/                # positive and negative scenarios
 ```
+
+## Modules and dependency graph
+
+```
+redis
+ ├── celery ──► push-notifications
+ ├── rate-limit
+ ├── auth ──► mfa (also needs email)
+ └── logging-elasticsearch
+email
+ ├── mfa
+ └── push-notifications
+auth ──► users-profiles ──► roles-permissions
+openai, s3            (standalone)
+celery ──► flower, celery-beat
+prometheus, caddy     (standalone)
+rabbitmq, kafka       (standalone message queues via a shared MessageBroker facade)
+```
+
+## Production (Caddy + TLS)
+
+The `caddy` module adds a production compose override. The dev stack keeps the
+API port open and has no Caddy; the production stack closes the public API port
+and exposes it only through Caddy over the internal Docker network:
+
+```bash
+make prod-up      # docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+make prod-logs
+make prod-down
+```
+
+Set `DOMAIN` (defaults to `localhost`) and `ACME_EMAIL` in `.env`. A real domain
+gets a Let's Encrypt certificate automatically; `localhost` uses Caddy's
+internal CA.
+
+Adapters are defined as `typing.Protocol` ports and bound to concrete
+implementations in the DI container, so tests inject fakes without touching
+business logic (see `docs/contracts.md`).
 
 ## Development
 

@@ -1,0 +1,27 @@
+import asyncio
+
+from celery import shared_task
+
+from {{project_name}}.adapters.firebase.client import FirebasePushSender
+from {{project_name}}.core.config import settings
+from {{project_name}}.services.notifications import NotificationService
+
+
+def _build_service() -> NotificationService:
+    sender = FirebasePushSender(
+        credentials_path=settings.firebase.CREDENTIALS_PATH,
+        project_id=settings.firebase.PROJECT_ID,
+    )
+    return NotificationService(sender)
+
+
+@shared_task(name="notifications.send_push")
+def send_push(user_token: str, title: str, body: str) -> str:
+    """Send a push notification to a single user token."""
+    return asyncio.run(_build_service().notify_user(user_token, title, body))
+
+
+@shared_task(name="notifications.send_topic_push")
+def send_topic_push(topic: str, title: str, body: str) -> str:
+    """Broadcast a push notification to a topic."""
+    return asyncio.run(_build_service().notify_topic(topic, title, body))

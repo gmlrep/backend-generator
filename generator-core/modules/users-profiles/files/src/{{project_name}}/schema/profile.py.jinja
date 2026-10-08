@@ -1,0 +1,18 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class ProfileBase(BaseSchema):
+    display_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    locale: str = "en"
+    timezone: str = "UTC"
+
+
+class ProfileUpdate(ProfileBase):
+    pass
+
+
+class ProfileRead(ProfileBase):
+    id: int | None = None
+    user_id: int

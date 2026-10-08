@@ -11,6 +11,8 @@ from sqlalchemy.engine import URL
 _ENV_FILE = ".env"
 _ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
 
+# EXTENSION_CONFIG_CLASSES
+
 
 class ServerSettings(BaseSettings):
     model_config = _ENV_CONFIG

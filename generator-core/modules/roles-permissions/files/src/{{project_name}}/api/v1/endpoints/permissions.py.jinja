@@ -1,0 +1,47 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+
+from {{project_name}}.core.dependencies import get_current_active_user, get_current_super_user
+from {{project_name}}.schema.role import AssignRoleRequest, RoleCreate, RoleRead
+from {{project_name}}.schema.user import User
+
+router = APIRouter(prefix="/permissions", tags=["permissions"])
+
+
+@router.get("/me", response_model=list[str])
+async def my_permissions(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> list[str]:
+    service = request.app.state.container.permission_service()
+    return await service.get_permission_codes(current_user.id)
+
+
+@router.get("/roles", response_model=list[RoleRead])
+async def list_roles(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+) -> list[RoleRead]:
+    service = request.app.state.container.permission_service()
+    return await service.list_roles()
+
+
+@router.post("/roles", response_model=RoleRead)
+async def create_role(
+    payload: RoleCreate,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+) -> RoleRead:
+    service = request.app.state.container.permission_service()
+    return await service.create_role(payload)
+
+
+@router.post("/roles/assign", status_code=204)
+async def assign_role(
+    payload: AssignRoleRequest,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+) -> None:
+    service = request.app.state.container.permission_service()
+    await service.assign_role(payload)

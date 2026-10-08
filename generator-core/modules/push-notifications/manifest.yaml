@@ -1,0 +1,29 @@
+manifest_version: "1"
+id: push-notifications
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - celery
+conflicts: []
+python_dependencies:
+  - "firebase-admin>=6.5"
+env_example:
+  - "FIREBASE_CREDENTIALS_PATH="
+  - "FIREBASE_PROJECT_ID="
+patches:
+  - target: src/{{project_name}}/tasks/__init__.py
+    marker: EXTENSION_TASKS
+    fragment: fragments/push_tasks.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/push_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/push_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/push_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/push_container_services.py.jinja

@@ -1,0 +1,8 @@
+    container = getattr(app.state, "container", None)
+    if container is not None:
+        kafka_broker = container.kafka_broker()
+        app.state.kafka_broker = kafka_broker
+        try:
+            await kafka_broker.start()
+        except Exception as exc:
+            logger.warning("Kafka is not reachable at startup: {}", exc)

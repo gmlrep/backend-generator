@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+
 import loguru
 import uvicorn
 from fastapi import FastAPI
@@ -7,11 +9,13 @@ from {{project_name}}.api.health import router as health_router
 from {{project_name}}.api.v1.routes import routers as v1_routers
 from {{project_name}}.core.config import settings
 from {{project_name}}.core.container import Container
-from {{project_name}}.core.events import lifespan
 from {{project_name}}.core.exception_handlers import register_exception_handlers
+from {{project_name}}.core.lifespan import lifespan
 from {{project_name}}.core.logging import logger_add
 from {{project_name}}.core.middleware import RequestIdMiddleware
 from {{project_name}}.util.class_object import singleton
+
+# EXTENSION_MAIN_IMPORTS
 
 
 @singleton
@@ -27,6 +31,7 @@ class AppCreator:
 
         self.container = Container()
         self.db = self.container.db()
+        self.app.state.container = self.container
         self.app.state.db = self.db
         self.app.state.healthcheck_timeout = settings.server.HEALTHCHECK_TIMEOUT
 
@@ -35,6 +40,8 @@ class AppCreator:
 
         self.app.include_router(health_router)
         self.app.include_router(v1_routers, prefix=settings.api.API_PREFIX)
+
+        # EXTENSION_APP_SETUP
 
     def _add_middleware(self) -> None:
         if settings.cors.ALLOWED_ORIGINS:
@@ -47,6 +54,8 @@ class AppCreator:
             )
 
         self.app.add_middleware(RequestIdMiddleware)
+
+        # EXTENSION_MIDDLEWARE
 
         if settings.server.TRUSTED_PROXY_IPS:
             from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware

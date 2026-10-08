@@ -1,0 +1,31 @@
+from {{project_name}}.services.storage import StorageService
+
+
+class _FakeStorage:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    async def upload(self, key: str, data: bytes, content_type: str | None = None) -> str:
+        self.objects[key] = data
+        return key
+
+    async def download(self, key: str) -> bytes:
+        return self.objects[key]
+
+    async def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+    async def exists(self, key: str) -> bool:
+        return key in self.objects
+
+    async def presigned_url(self, key: str, expires_in: int = 3600) -> str:
+        return f"https://storage.test/{key}"
+
+
+async def test_save_and_read_text() -> None:
+    service = StorageService(_FakeStorage())
+
+    key = await service.save_text("notes/hello.txt", "hello")
+
+    assert key == "notes/hello.txt"
+    assert await service.read_text("notes/hello.txt") == "hello"

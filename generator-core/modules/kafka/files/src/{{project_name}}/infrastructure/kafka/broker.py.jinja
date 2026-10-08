@@ -1,0 +1,42 @@
+from faststream.kafka import KafkaBroker
+from faststream.security import BaseSecurity, SASLPlaintext, SASLScram256, SASLScram512
+
+from {{project_name}}.infrastructure.messaging import MessageBroker
+
+
+def _build_security(
+    use_ssl: bool,
+    mechanism: str | None,
+    username: str | None,
+    password: str | None,
+) -> BaseSecurity | None:
+    if not mechanism or username is None or password is None:
+        return BaseSecurity(use_ssl=True) if use_ssl else None
+
+    match mechanism.upper():
+        case "PLAIN":
+            return SASLPlaintext(username=username, password=password, use_ssl=use_ssl)
+        case "SCRAM-SHA-256":
+            return SASLScram256(username=username, password=password, use_ssl=use_ssl)
+        case "SCRAM-SHA-512":
+            return SASLScram512(username=username, password=password, use_ssl=use_ssl)
+        case _:
+            raise ValueError(f"Unsupported Kafka SASL mechanism: {mechanism}")
+
+
+def create_kafka_broker(
+    bootstrap_servers: list[str] | str,
+    client_id: str,
+    use_ssl: bool = False,
+    sasl_mechanism: str | None = None,
+    sasl_username: str | None = None,
+    sasl_password: str | None = None,
+) -> MessageBroker:
+    """Build a Kafka broker behind the universal :class:`MessageBroker` facade.
+
+    Kafka is expected to be an external/managed broker; the lifespan calls
+    ``start`` and ``stop`` on the returned facade.
+    """
+    security = _build_security(use_ssl, sasl_mechanism, sasl_username, sasl_password)
+    broker = KafkaBroker(bootstrap_servers, client_id=client_id, security=security)
+    return MessageBroker(broker)

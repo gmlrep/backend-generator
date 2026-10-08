@@ -1,9 +1,59 @@
 profiles:
-  auth-service:
-    - auth
+  minimal: []
   items-service:
     - items
-  full:
+  auth-service:
+    - redis
     - auth
-    - items
-  minimal: []
+  auth-mfa-service:
+    - redis
+    - auth
+    - email
+    - mfa
+  users-service:
+    - redis
+    - auth
+    - users-profiles
+    - roles-permissions
+  notifications-service:
+    - redis
+    - celery
+    - email
+    - push-notifications
+  celery-tools:
+    - redis
+    - celery
+    - flower
+    - celery-beat
+  observability:
+    - prometheus
+    - logging-elasticsearch
+  messaging:
+    - rabbitmq
+    - kafka
+  production:
+    - redis
+    - auth
+    - users-profiles
+    - roles-permissions
+    - celery
+    - celery-beat
+    - caddy
+  full:
+    - redis
+    - celery
+    - celery-beat
+    - rate-limit
+    - auth
+    - email
+    - mfa
+    - logging-elasticsearch
+    - openai
+    - s3
+    - push-notifications
+    - users-profiles
+    - roles-permissions
+    - prometheus
+    - caddy
+    - rabbitmq
+    - kafka

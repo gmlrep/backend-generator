@@ -1,0 +1,14 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class FirebaseSettings(BaseSettings):
+    """Firebase Admin SDK settings."""
+
+    model_config = _ENV_CONFIG
+
+    CREDENTIALS_PATH: str | None = Field(default=None, validation_alias="FIREBASE_CREDENTIALS_PATH")
+    PROJECT_ID: str | None = Field(default=None, validation_alias="FIREBASE_PROJECT_ID")

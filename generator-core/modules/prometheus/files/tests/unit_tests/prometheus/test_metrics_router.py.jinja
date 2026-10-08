@@ -1,0 +1,16 @@
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from {{project_name}}.infrastructure.prometheus.instrumentation import setup_metrics
+
+
+async def test_metrics_endpoint_is_exposed() -> None:
+    app = FastAPI()
+    setup_metrics(app, endpoint="/metrics")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "http" in response.text

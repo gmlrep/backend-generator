@@ -1,23 +1,35 @@
 from datetime import timedelta
 
+from fastapi import HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
+
 from {{project_name}}.core.config import settings
 from {{project_name}}.core.exceptions import AuthError
-from {{project_name}}.core.security import create_access_token, get_password_hash, verify_password
+from {{project_name}}.core.security import (
+    REFRESH_TOKEN_TYPE,
+    create_access_token,
+    create_refresh_token,
+    decode_jwt,
+    get_password_hash,
+    verify_password,
+)
 from {{project_name}}.model.user import User as UserModel
 from {{project_name}}.repository.user import UserRepository
 from {{project_name}}.schema.auth import Payload, SignIn, SignInResponse, SignUp
 from {{project_name}}.schema.user import FindUser, User
 from {{project_name}}.services.base import BaseService
+from {{project_name}}.services.token_store import TokenStore
 from {{project_name}}.util.hash import get_rand_hash
 
 
 class AuthService(BaseService):
-    def __init__(self, user_repository: UserRepository) -> None:
+    def __init__(self, user_repository: UserRepository, token_store: TokenStore) -> None:
         self.user_repository = user_repository
+        self.token_store = token_store
         super().__init__(user_repository)
 
-    async def sign_in(self, sign_in_info: SignIn) -> SignInResponse:
-        find_user = FindUser(email__eq=sign_in_info.email)
+    async def authenticate(self, email: str, password: str) -> User:
+        find_user = FindUser(email__eq=email)
         users: list[UserModel] = (await self.user_repository.read_by_options(find_user))["founds"]
         if len(users) < 1:
             raise AuthError(detail="Incorrect email or password")
@@ -25,22 +37,16 @@ class AuthService(BaseService):
         found_user = users[0]
         if not found_user.is_active:
             raise AuthError(detail="Account is not active")
-        if not await verify_password(sign_in_info.password, found_user.password):
+        if not await verify_password(password, found_user.password):
             raise AuthError(detail="Incorrect email or password")
+        return User.model_validate(found_user)
 
-        payload = Payload(
-            id=found_user.id,
-            email=found_user.email,
-            name=found_user.name,
-            is_superuser=found_user.is_superuser,
-        )
-        token_lifespan = timedelta(minutes=settings.security.JWT_EXPIRES_MINUTES)
-        access_token, expiration_datetime = create_access_token(payload.model_dump(), token_lifespan)
-        return SignInResponse(
-            access_token=access_token,
-            expiration=expiration_datetime,
-            user_info=User.model_validate(found_user),
-        )
+    async def sign_in(self, sign_in_info: SignIn) -> SignInResponse:
+        user = await self.authenticate(sign_in_info.email, sign_in_info.password)
+        return await self._issue_tokens(user)
+
+    async def sign_in_oauth(self, form_data: OAuth2PasswordRequestForm) -> SignInResponse:
+        return await self.sign_in(SignIn(email=form_data.username, password=form_data.password))
 
     async def sign_up(self, user_info: SignUp) -> User:
         user = UserModel(
@@ -53,3 +59,44 @@ class AuthService(BaseService):
         )
         created_user: UserModel = await self.user_repository.create(user)
         return User.model_validate(created_user)
+
+    async def refresh(self, refresh_token: str) -> SignInResponse:
+        try:
+            payload = decode_jwt(refresh_token, expected_type=REFRESH_TOKEN_TYPE)
+        except HTTPException as exc:
+            raise AuthError(detail="Invalid refresh token") from exc
+
+        jti = payload.get("jti")
+        if not jti or not await self.token_store.is_refresh_valid(jti):
+            raise AuthError(detail="Refresh token has been revoked")
+        # Rotate: a refresh token can only be used once.
+        await self.token_store.revoke_refresh(jti)
+
+        user_model = await self.user_repository.read_by_id(int(payload["id"]))
+        if user_model is None or not user_model.is_active:
+            raise AuthError(detail="Inactive user")
+        return await self._issue_tokens(User.model_validate(user_model))
+
+    async def logout(self, refresh_token: str) -> None:
+        try:
+            payload = decode_jwt(refresh_token, expected_type=REFRESH_TOKEN_TYPE)
+        except HTTPException:
+            return
+        jti = payload.get("jti")
+        if jti:
+            await self.token_store.revoke_refresh(jti)
+
+    async def _issue_tokens(self, user: User) -> SignInResponse:
+        payload = Payload(id=user.id, email=user.email, name=user.name, is_superuser=user.is_superuser)
+        access_token, expiration, _ = create_access_token(payload.model_dump())
+        refresh_token, _, refresh_jti = create_refresh_token(payload.model_dump())
+
+        ttl_seconds = int(timedelta(days=settings.security.JWT_REFRESH_EXPIRES_DAYS).total_seconds())
+        await self.token_store.save_refresh(refresh_jti, user.id, ttl_seconds)
+
+        return SignInResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expiration=expiration,
+            user_info=user,
+        )

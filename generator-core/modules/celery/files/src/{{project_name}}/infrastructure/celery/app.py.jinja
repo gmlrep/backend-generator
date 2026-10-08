@@ -1,0 +1,32 @@
+from celery import Celery
+
+from {{project_name}}.core.config import settings
+
+
+def create_celery_app() -> Celery:
+    """Build the Celery application.
+
+    Tasks are regular ``@shared_task`` functions placed in the
+    ``{{project_name}}.tasks`` package. The task package is imported eagerly so
+    the API process can also dispatch tasks by name.
+    """
+    app = Celery(
+        "{{project_name}}",
+        broker=settings.celery.BROKER_URL,
+        backend=settings.celery.RESULT_BACKEND,
+    )
+    app.conf.update(
+        task_always_eager=settings.celery.TASK_ALWAYS_EAGER,
+        task_time_limit=settings.celery.TASK_TIME_LIMIT,
+        timezone=settings.celery.TIMEZONE,
+        enable_utc=True,
+        task_serializer="json",
+        result_serializer="json",
+        accept_content=["json"],
+    )
+    app.autodiscover_tasks(["{{project_name}}"], force=True)
+    # EXTENSION_CELERY_BEAT
+    return app
+
+
+celery_app = create_celery_app()

@@ -1,0 +1,49 @@
+from {{project_name}}.services.permissions import PermissionService
+
+
+class _FakeResult:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    def scalars(self) -> "_FakeResult":
+        return self
+
+    def all(self) -> list[str]:
+        return self._values
+
+
+class _FakeSession:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    async def __aenter__(self) -> "_FakeSession":
+        return self
+
+    async def __aexit__(self, *args: object) -> bool:
+        return False
+
+    async def execute(self, stmt: object) -> _FakeResult:
+        return _FakeResult(self._values)
+
+
+class _FakeRoleRepository:
+    def __init__(self, values: list[str]) -> None:
+        self._values = values
+
+    def session_factory(self) -> _FakeSession:
+        return _FakeSession(self._values)
+
+
+async def test_get_permission_codes() -> None:
+    service = PermissionService(_FakeRoleRepository(["users:read", "users:write"]), object())  # type: ignore[arg-type]
+
+    codes = await service.get_permission_codes(1)
+
+    assert codes == ["users:read", "users:write"]
+
+
+async def test_has_permission() -> None:
+    service = PermissionService(_FakeRoleRepository(["users:read"]), object())  # type: ignore[arg-type]
+
+    assert await service.has_permission(1, "users:read") is True
+    assert await service.has_permission(1, "users:write") is False

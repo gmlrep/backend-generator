@@ -2,10 +2,11 @@ from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 
 from {{project_name}}.core.container import Container
 from {{project_name}}.core.dependencies import get_current_active_user
-from {{project_name}}.schema.auth import SignIn, SignInResponse, SignUp
+from {{project_name}}.schema.auth import RefreshRequest, SignIn, SignInResponse, SignUp
 from {{project_name}}.schema.user import User
 from {{project_name}}.services.auth import AuthService
 
@@ -19,6 +20,34 @@ async def sign_in(
     service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
 ) -> SignInResponse:
     return await service.sign_in(user_info)
+
+
+@router.post("/token", response_model=SignInResponse)
+@inject
+async def token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> SignInResponse:
+    """OAuth2 password flow endpoint (``application/x-www-form-urlencoded``)."""
+    return await service.sign_in_oauth(form_data)
+
+
+@router.post("/refresh", response_model=SignInResponse)
+@inject
+async def refresh(
+    payload: RefreshRequest,
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> SignInResponse:
+    return await service.refresh(payload.refresh_token)
+
+
+@router.post("/logout", status_code=204)
+@inject
+async def logout(
+    payload: RefreshRequest,
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> None:
+    await service.logout(payload.refresh_token)
 
 
 @router.post("/sign-up", response_model=User)

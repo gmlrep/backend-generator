@@ -8,9 +8,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 import jinja2
+import questionary
 import yaml
 
 from generator.contracts import ContractValidator
@@ -19,6 +21,7 @@ from generator.manifest import parse_manifest
 
 _PROJECT_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 _DEFAULT_PROFILE_ORDER = ["auth-service", "items-service", "full", "minimal"]
+_CUSTOM_PROFILE = "custom"
 _VCS_CHOICES = ("github", "gitlab")
 # The chosen repository host determines the main branch and the generated CI.
 _VCS_DEFAULT_BRANCH = {"github": "main", "gitlab": "main"}
@@ -58,6 +61,11 @@ def _validate_target_dir(target: Path, allow_overwrite: bool) -> None:
         raise click.BadParameter(f"Directory {target} already exists and is not empty. Use --allow-overwrite to force.")
 
 
+def _status(message: str, *, ok: bool = True, err: bool = False) -> None:
+    """Print a status line; colours are dropped automatically when not a TTY."""
+    click.secho(message, fg="green" if ok else "red", err=err)
+
+
 def _run_generation(
     *,
     name: str,
@@ -71,6 +79,7 @@ def _run_generation(
     main_branch: str | None = None,
     core_template: str | None = None,
     modules_dir: str | None = None,
+    selected_modules: list[str] | None = None,
     prompt_optional_modules: bool = False,
 ) -> None:
     """Validate inputs, scaffold a project, then run the mandatory post-steps.
@@ -84,7 +93,7 @@ def _run_generation(
     # Check for git before generating: if it is missing, skip initialization
     # entirely instead of failing at the end.
     if init_git and not _git_available():
-        click.echo("[git] git not found in PATH — skipping repository initialization.", err=True)
+        _status("[git] git not found in PATH — skipping repository initialization.", ok=False, err=True)
         init_git = False
 
     core_template_path, modules_path = _resolve_paths(core_template, modules_dir)
@@ -95,19 +104,27 @@ def _run_generation(
         click.echo(f"Modules directory not found: {modules_path}", err=True)
         sys.exit(1)
 
-    profile_modules = _resolve_profile(profile, modules_path)
-    if profile_modules is None:
-        available = ", ".join(_available_profiles(modules_path)) or "auth-service"
-        click.echo(f"Unknown profile: {profile}. Available: {available}", err=True)
-        sys.exit(1)
+    if selected_modules is not None:
+        selected = set(selected_modules)
+        profile_label = _CUSTOM_PROFILE
+    else:
+        profile_modules = _resolve_profile(profile, modules_path)
+        if profile_modules is None:
+            available = ", ".join(_available_profiles(modules_path)) or "auth-service"
+            click.echo(f"Unknown profile: {profile}. Available: {available}", err=True)
+            sys.exit(1)
+        selected = set(profile_modules)
+        profile_label = profile
 
-    selected = set(profile_modules)
-
-    if prompt_optional_modules:
-        optional = _list_optional_modules(modules_path, selected)
-        for opt in optional:
-            if click.confirm(f"  Include optional module '{opt}'?", default=False):
-                selected.add(opt)
+        if prompt_optional_modules:
+            optional = _list_optional_modules(modules_path, selected)
+            if optional:
+                chosen = _ask_checkbox(
+                    "Include optional modules (space to toggle, enter to confirm):",
+                    choices=optional,
+                )
+                if chosen:
+                    selected.update(chosen)
 
     if modules:
         for m in modules.split(","):
@@ -115,8 +132,20 @@ def _run_generation(
             if m:
                 selected.add(m)
 
+    # Pull in transitive module dependencies so a hand-picked selection is valid.
+    selected, added = _expand_requirements(selected, modules_path)
+    if added:
+        _status(f"[modules] Required dependencies added: {', '.join(added)}")
+
     target_dir = Path(target) if target else Path.cwd() / name
     _validate_target_dir(target_dir, allow_overwrite)
+
+    click.echo()
+    click.secho(f"Scaffolding '{name}'", bold=True)
+    click.echo(f"  Profile  : {profile_label}")
+    click.echo(f"  Modules  : {', '.join(sorted(selected)) or '(none)'}")
+    click.echo(f"  Target   : {target_dir}")
+    click.echo()
 
     engine = Engine(
         core_template_dir=core_template_path,
@@ -137,7 +166,7 @@ def _run_generation(
         sys.exit(2)
 
     # Mandatory post-steps: environment example and ruff check.
-    _write_env_files(target_dir, sorted(selected), modules_path)
+    _write_env_files(target_dir, sorted(selected), modules_path, name)
     _run_ruff(target_dir)
 
     # Optional: create and populate a virtual environment.
@@ -153,7 +182,13 @@ def _run_generation(
     if init_git:
         _init_git(target_dir, branch)
 
-    click.echo(f"Project '{name}' created at {target_dir}")
+    click.echo()
+    click.secho(f"Project '{name}' created.", fg="green", bold=True)
+    click.echo(f"  Location : {target_dir}")
+    click.echo(f"  Modules  : {', '.join(sorted(selected)) or '(none)'}")
+    click.echo("  Next steps:")
+    click.echo(f"    cd {target_dir}")
+    click.echo("    make dev")
 
 
 @click.group(invoke_without_command=True)
@@ -220,12 +255,33 @@ def create(
     )
 
 
+def _ask_select(message: str, choices: Any, default: Any = None) -> Any:
+    """Thin wrapper around :func:`questionary.select` (patchable in tests)."""
+    return questionary.select(message, choices=choices, default=default).ask()
+
+
+def _ask_text(message: str, validate: Any = None) -> Any:
+    return questionary.text(message, validate=validate).ask()
+
+
+def _ask_confirm(message: str, default: bool = False) -> Any:
+    return questionary.confirm(message, default=default).ask()
+
+
+def _ask_checkbox(message: str, choices: Any) -> Any:
+    return questionary.checkbox(message, choices=choices).ask()
+
+
 def _interactive_menu() -> None:
     """Bare-command menu. Only ``create`` is available for now."""
-    click.echo("What would you like to do?")
-    click.echo("  1) create")
-    click.prompt("Select", type=click.IntRange(1, 1), default=1, show_default=True)
-    _interactive_create()
+    action = _ask_select(
+        "What would you like to do?",
+        choices=[questionary.Choice(title="create", value="create")],
+    )
+    if action is None:
+        raise click.Abort()
+    if action == "create":
+        _interactive_create()
 
 
 def _interactive_create() -> None:
@@ -233,50 +289,103 @@ def _interactive_create() -> None:
 
     name = _prompt_project_name()
     profile = _prompt_profile(modules_path)
+
+    selected_modules: list[str] | None = None
+    if profile == _CUSTOM_PROFILE:
+        selected_modules = _prompt_modules(modules_path)
+        if selected_modules is None:
+            raise click.Abort()
+
     vcs = _prompt_vcs()
 
     target_dir = Path.cwd() / name
     allow_overwrite = False
     if target_dir.exists() and any(target_dir.iterdir()):
-        if not click.confirm(f"Directory '{target_dir}' already exists. Overwrite?", default=False):
+        overwrite = _ask_confirm(f"Directory '{target_dir}' already exists. Overwrite?", default=False)
+        if not overwrite:
             click.echo("Aborted.")
             raise click.Abort()
         allow_overwrite = True
 
-    create_venv = click.confirm("Create a virtual environment and install dependencies?", default=True)
+    create_venv = _ask_confirm("Create a virtual environment and install dependencies?", default=True)
+    if create_venv is None:
+        raise click.Abort()
 
     _run_generation(
         name=name,
         profile=profile,
+        selected_modules=selected_modules,
         allow_overwrite=allow_overwrite,
         create_venv=create_venv,
         vcs=vcs,
+        prompt_optional_modules=selected_modules is None,
     )
 
 
+def _validate_project_name_answer(value: str) -> bool | str:
+    if _PROJECT_NAME_RE.match(value):
+        return True
+    return "Use letters, digits, '_' or '-', starting with a letter."
+
+
 def _prompt_project_name() -> str:
-    while True:
-        name = click.prompt("Project name")
-        if _PROJECT_NAME_RE.match(name):
-            return name
-        click.echo("Invalid name: use letters, digits, '_' or '-', starting with a letter.", err=True)
+    name = _ask_text("Project name", validate=_validate_project_name_answer)
+    if name is None:
+        raise click.Abort()
+    return name
 
 
 def _prompt_profile(modules_path: Path) -> str:
     profiles = _available_profiles(modules_path)
-    click.echo("Select a service to generate:")
-    for index, profile in enumerate(profiles, start=1):
-        click.echo(f"  {index}) {profile}")
-    choice = click.prompt("Select", type=click.IntRange(1, len(profiles)), default=1)
-    return profiles[choice - 1]
+    rows = [(profile, _resolve_profile(profile, modules_path) or []) for profile in profiles]
+    width = max([len(profile) for profile, _ in rows] + [len(_CUSTOM_PROFILE)])
+
+    choices: list[questionary.Choice] = []
+    for profile, modules in rows:
+        modules_label = ", ".join(modules) if modules else "no modules"
+        choices.append(questionary.Choice(title=f"{profile:<{width}}  {modules_label}", value=profile))
+    choices.append(questionary.Separator("─" * (width + 4)))
+    choices.append(
+        questionary.Choice(
+            title=f"{_CUSTOM_PROFILE:<{width}}  pick any modules manually",
+            value=_CUSTOM_PROFILE,
+        )
+    )
+
+    answer = _ask_select("Select a service to generate:", choices=choices)
+    if answer is None:
+        raise click.Abort()
+    return answer
+
+
+def _prompt_modules(modules_path: Path) -> list[str] | None:
+    """Checkbox list over every available module, used by the ``custom`` flow."""
+    choices: list[questionary.Choice] = []
+    for module_id in _list_all_modules(modules_path):
+        manifest = parse_manifest(modules_path / module_id / "manifest.yaml")
+        label = module_id
+        if manifest.requires_modules:
+            label += f"  (requires: {', '.join(manifest.requires_modules)})"
+        choices.append(questionary.Choice(title=label, value=module_id))
+
+    while True:
+        chosen = _ask_checkbox("Select modules to include (space to toggle, enter to confirm):", choices=choices)
+        if chosen is None:
+            return None
+        if chosen:
+            return list(chosen)
+        click.echo("Pick at least one module (choose the 'minimal' service for none).", err=True)
 
 
 def _prompt_vcs() -> str:
-    click.echo("Which repository host will you use?")
-    for index, vcs in enumerate(_VCS_CHOICES, start=1):
-        click.echo(f"  {index}) {vcs}")
-    choice = click.prompt("Select", type=click.IntRange(1, len(_VCS_CHOICES)), default=1)
-    return _VCS_CHOICES[choice - 1]
+    answer = _ask_select(
+        "Which repository host will you use?",
+        choices=list(_VCS_CHOICES),
+        default=_VCS_CHOICES[0],
+    )
+    if answer is None:
+        raise click.Abort()
+    return answer
 
 
 def _available_profiles(modules_path: Path) -> list[str]:
@@ -301,18 +410,35 @@ def _resolve_profile(profile: str, modules_path: Path) -> list[str] | None:
     return None
 
 
+def _list_all_modules(modules_path: Path) -> list[str]:
+    """Every module that ships a manifest, sorted by id."""
+    return [d.name for d in sorted(modules_path.iterdir()) if d.is_dir() and (d / "manifest.yaml").exists()]
+
+
 def _list_optional_modules(modules_path: Path, mandatory: set[str]) -> list[str]:
-    opts = []
-    for d in sorted(modules_path.iterdir()):
-        if d.is_dir() and d.name not in mandatory:
-            manifest = d / "manifest.yaml"
-            if manifest.exists():
-                opts.append(d.name)
-    return opts
+    return [module_id for module_id in _list_all_modules(modules_path) if module_id not in mandatory]
 
 
-def _write_env_files(target_dir: Path, module_ids: list[str], modules_path: Path) -> None:
-    click.echo("[env] Writing .env.example ...")
+def _expand_requirements(selected: set[str], modules_path: Path) -> tuple[set[str], list[str]]:
+    """Return the selection plus every transitively required module."""
+    resolved: set[str] = set()
+    pending = list(selected)
+    while pending:
+        module_id = pending.pop()
+        if module_id in resolved:
+            continue
+        resolved.add(module_id)
+        manifest_path = modules_path / module_id / "manifest.yaml"
+        if not manifest_path.exists():
+            continue
+        for requirement in parse_manifest(manifest_path).requires_modules:
+            if requirement not in resolved:
+                pending.append(requirement)
+    return resolved, sorted(resolved - selected)
+
+
+def _write_env_files(target_dir: Path, module_ids: list[str], modules_path: Path, project_name: str) -> None:
+    _status("[env] Writing .env.example ...")
     lines = [
         "ENVIRONMENT=local",
         "API_HOST=0.0.0.0",
@@ -330,16 +456,19 @@ def _write_env_files(target_dir: Path, module_ids: list[str], modules_path: Path
         "LOG_LEVEL=INFO",
     ]
     # Module-owned settings (e.g. auth owns the JWT variables).
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    context = {"project_name": project_name}
     for module_id in module_ids:
         manifest_path = modules_path / module_id / "manifest.yaml"
         if manifest_path.exists():
-            lines.extend(parse_manifest(manifest_path).env_example)
+            for line in parse_manifest(manifest_path).env_example:
+                lines.append(env.from_string(line).render(context))
     content = "\n".join(lines) + "\n"
     (target_dir / ".env.example").write_text(content, encoding="utf-8")
-    click.echo("[env] .env.example created.")
+    _status("[env] .env.example created.")
     # Seed a working .env from the example so docker-compose can load it.
     (target_dir / ".env").write_text(content, encoding="utf-8")
-    click.echo("[env] .env created from .env.example.")
+    _status("[env] .env created from .env.example.")
 
 
 def _find_ruff() -> str | None:
@@ -354,10 +483,10 @@ def _find_ruff() -> str | None:
 
 def _run_ruff(target_dir: Path) -> bool:
     """Format then check the generated project. Returns ``True`` on success."""
-    click.echo("[ruff] Running format and check ...")
+    _status("[ruff] Running format and check ...")
     ruff = _find_ruff()
     if ruff is None:
-        click.echo("[ruff] FAILED: ruff is not installed, check skipped.", err=True)
+        _status("[ruff] FAILED: ruff is not installed, check skipped.", ok=False, err=True)
         return False
 
     subprocess.run([ruff, "format", str(target_dir)], check=False, capture_output=True, text=True)
@@ -365,10 +494,10 @@ def _run_ruff(target_dir: Path) -> bool:
     result = subprocess.run([ruff, "check", str(target_dir)], check=False, capture_output=True, text=True)
 
     if result.returncode == 0:
-        click.echo("[ruff] PASSED: no issues found.")
+        _status("[ruff] PASSED: no issues found.")
         return True
 
-    click.echo("[ruff] FAILED: issues remain:", err=True)
+    _status("[ruff] FAILED: issues remain:", ok=False, err=True)
     click.echo((result.stdout or result.stderr).strip(), err=True)
     return False
 
@@ -376,14 +505,14 @@ def _run_ruff(target_dir: Path) -> bool:
 def _setup_venv(target_dir: Path) -> bool:
     """Create ``.venv`` inside the generated project and install dependencies."""
     venv_dir = target_dir / ".venv"
-    click.echo(f"[venv] Creating virtual environment at {venv_dir} ...")
+    _status(f"[venv] Creating virtual environment at {venv_dir} ...")
 
     uv = shutil.which("uv")
     if uv:
-        click.echo("[venv] uv found: downloading interpreter and dependencies (uv sync) ...")
+        _status("[venv] uv found: downloading interpreter and dependencies (uv sync) ...")
         result = subprocess.run([uv, "sync", "--project", str(target_dir)], check=False, text=True)
     else:
-        click.echo("[venv] uv not found: falling back to 'python -m venv' + pip ...")
+        _status("[venv] uv not found: falling back to 'python -m venv' + pip ...")
         result = subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=False, text=True)
         if result.returncode == 0:
             scripts_dir = "Scripts" if os.name == "nt" else "bin"
@@ -391,10 +520,10 @@ def _setup_venv(target_dir: Path) -> bool:
             result = subprocess.run([str(pip), "install", "-e", str(target_dir)], check=False, text=True)
 
     if result.returncode == 0:
-        click.echo("[venv] PASSED: virtual environment is ready.")
+        _status("[venv] PASSED: virtual environment is ready.")
         return True
 
-    click.echo("[venv] FAILED: could not create the virtual environment.", err=True)
+    _status("[venv] FAILED: could not create the virtual environment.", ok=False, err=True)
     return False
 
 
@@ -407,13 +536,13 @@ def _init_git(target_dir: Path, branch: str = "main") -> bool:
     """Initialize a git repository on ``branch`` and make a best-effort initial commit."""
     git = shutil.which("git")
     if git is None:
-        click.echo("[git] FAILED: git is not installed, repository not initialized.", err=True)
+        _status("[git] FAILED: git is not installed, repository not initialized.", ok=False, err=True)
         return False
 
-    click.echo(f"[git] Initializing repository on '{branch}' ...")
+    _status(f"[git] Initializing repository on '{branch}' ...")
     result = subprocess.run([git, "init", "-b", branch], cwd=target_dir, check=False, capture_output=True, text=True)
     if result.returncode != 0:
-        click.echo(f"[git] FAILED: {(result.stderr or result.stdout).strip()}", err=True)
+        _status(f"[git] FAILED: {(result.stderr or result.stdout).strip()}", ok=False, err=True)
         return False
 
     subprocess.run([git, "add", "-A"], cwd=target_dir, check=False, capture_output=True, text=True)
@@ -425,9 +554,9 @@ def _init_git(target_dir: Path, branch: str = "main") -> bool:
         text=True,
     )
     if commit.returncode == 0:
-        click.echo("[git] Repository initialized with an initial commit.")
+        _status("[git] Repository initialized with an initial commit.")
     else:
-        click.echo("[git] Repository initialized (no commit: configure git user.name/user.email).")
+        _status("[git] Repository initialized (no commit: configure git user.name/user.email).")
     return True
 
 
@@ -435,10 +564,10 @@ def _write_ci(target_dir: Path, ci_root: Path, vcs: str, main_branch: str, proje
     """Copy the CI templates for ``vcs`` into the generated project."""
     src_root = ci_root / vcs
     if not src_root.exists():
-        click.echo(f"[ci] No CI templates for '{vcs}' at {src_root}, skipping.", err=True)
+        _status(f"[ci] No CI templates for '{vcs}' at {src_root}, skipping.", ok=False, err=True)
         return
 
-    click.echo(f"[ci] Adding {vcs} CI (main branch: {main_branch}) ...")
+    _status(f"[ci] Adding {vcs} CI (main branch: {main_branch}) ...")
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     context = {"main_branch": main_branch, "project_name": project_name}
     for src in sorted(src_root.rglob("*")):
@@ -452,18 +581,20 @@ def _write_ci(target_dir: Path, ci_root: Path, vcs: str, main_branch: str, proje
             dst.with_suffix("").write_text(rendered, encoding="utf-8")
         else:
             shutil.copy2(src, dst)
-    click.echo(f"[ci] {vcs} CI created.")
+    _status(f"[ci] {vcs} CI created.")
 
 
 @cli.command()
 def list_profiles() -> None:
     """List available generation profiles."""
     modules_path = _resolve_paths(None, None)[1]
-    click.echo("Available profiles:")
-    for name in _available_profiles(modules_path):
+    profiles = _available_profiles(modules_path)
+    width = max((len(name) for name in profiles), default=0)
+    click.secho("Available profiles:", bold=True)
+    for name in profiles:
         modules = _resolve_profile(name, modules_path) or []
         rendered = ", ".join(modules) if modules else "(none)"
-        click.echo(f"  {name:14s} -> {rendered}")
+        click.echo(f"  {name:<{width}}  ->  {rendered}")
 
 
 @cli.command()
@@ -471,10 +602,12 @@ def list_profiles() -> None:
 def list_modules(modules_dir: str | None) -> None:
     """List available modules."""
     path = _resolve_paths(None, modules_dir)[1]
-    click.echo("Available modules:")
-    for d in sorted(path.iterdir()):
-        if d.is_dir() and (d / "manifest.yaml").exists():
-            click.echo(f"  {d.name}")
+    modules = _list_all_modules(path)
+    click.secho("Available modules:", bold=True)
+    for module_id in modules:
+        manifest = parse_manifest(path / module_id / "manifest.yaml")
+        requires = f"  (requires: {', '.join(manifest.requires_modules)})" if manifest.requires_modules else ""
+        click.echo(f"  {module_id}{requires}")
 
 
 if __name__ == "__main__":

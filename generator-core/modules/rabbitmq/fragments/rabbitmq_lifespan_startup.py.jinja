@@ -1,0 +1,8 @@
+    container = getattr(app.state, "container", None)
+    if container is not None:
+        rabbitmq_broker = container.rabbitmq_broker()
+        app.state.rabbitmq_broker = rabbitmq_broker
+        try:
+            await rabbitmq_broker.start()
+        except Exception as exc:
+            logger.warning("RabbitMQ is not reachable at startup: {}", exc)

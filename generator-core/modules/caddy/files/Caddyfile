@@ -1,0 +1,9 @@
+# Caddy reverse proxy for the API.
+#
+# DOMAIN and API_PORT are read from the container environment (see .env).
+# Caddy obtains and renews a TLS certificate automatically: a real domain
+# uses Let's Encrypt, while "localhost" uses Caddy's internal CA.
+{$DOMAIN:localhost} {
+	encode gzip
+	reverse_proxy api:{$API_PORT:9000}
+}

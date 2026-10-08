@@ -1,0 +1,7 @@
+from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
+
+
+def setup_metrics(app: FastAPI, endpoint: str = "/metrics") -> None:
+    """Expose Prometheus metrics for the FastAPI application."""
+    Instrumentator().instrument(app).expose(app, endpoint=endpoint, include_in_schema=False)

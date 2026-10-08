@@ -1,0 +1,14 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class PrometheusSettings(BaseSettings):
+    """Prometheus metrics settings."""
+
+    model_config = _ENV_CONFIG
+
+    ENABLED: bool = Field(default=True, validation_alias="PROMETHEUS_ENABLED")
+    ENDPOINT: str = Field(default="/metrics", validation_alias="PROMETHEUS_ENDPOINT")

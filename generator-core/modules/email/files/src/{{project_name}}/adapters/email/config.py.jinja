@@ -1,0 +1,18 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class EmailSettings(BaseSettings):
+    """SMTP settings for the email adapter."""
+
+    model_config = _ENV_CONFIG
+
+    HOST: str = Field(default="localhost", validation_alias="SMTP_HOST")
+    PORT: int = Field(default=587, validation_alias="SMTP_PORT")
+    USER: str | None = Field(default=None, validation_alias="SMTP_USER")
+    PASSWORD: str | None = Field(default=None, validation_alias="SMTP_PASSWORD")
+    FROM: str = Field(default="noreply@example.com", validation_alias="SMTP_FROM")
+    START_TLS: bool = Field(default=True, validation_alias="SMTP_START_TLS")

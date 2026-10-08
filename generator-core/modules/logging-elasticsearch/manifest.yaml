@@ -1,0 +1,42 @@
+manifest_version: "1"
+id: logging-elasticsearch
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "elasticsearch>=8.0"
+env_example:
+  - "ELASTICSEARCH_ENABLED=false"
+  - "ELASTICSEARCH_URL=http://localhost:9200"
+  - "ELASTICSEARCH_INDEX=app-logs"
+  - "ELASTICSEARCH_LEVEL=INFO"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/elasticsearch_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/elasticsearch_config_settings.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_IMPORTS
+    fragment: fragments/elasticsearch_lifespan_imports.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/elasticsearch_lifespan_startup.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_SHUTDOWN
+    fragment: fragments/elasticsearch_lifespan_shutdown.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/elasticsearch_compose_env.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/elasticsearch_compose_service.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_DEPENDS_ON
+    fragment: fragments/elasticsearch_compose_depends.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/elasticsearch_compose_volume.py.jinja

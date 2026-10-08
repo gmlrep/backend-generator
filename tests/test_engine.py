@@ -31,18 +31,46 @@ def _make_module(modules_dir: Path, module_id: str, files: dict[str, str], **ove
         path.write_text(content, encoding="utf-8")
 
 
+def _make_module_with_fragments(
+    modules_dir: Path,
+    module_id: str,
+    patches: list[dict[str, str]],
+    fragments: dict[str, str],
+    **overrides,
+) -> None:
+    mod = modules_dir / module_id
+    (mod / "files").mkdir(parents=True, exist_ok=True)
+    (mod / "fragments").mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "manifest_version": "1",
+        "id": module_id,
+        "version": "1.0.0",
+        "requires": {"core": ">=1.0.0", "modules": []},
+        "conflicts": [],
+        "python_dependencies": [],
+        "patches": patches,
+    }
+    manifest.update(overrides)
+    (mod / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    for rel, content in fragments.items():
+        path = mod / "fragments" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
 def test_generate_auth_service(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "myservice"
-    _engine(core_template, modules_dir).generate(target, "myservice", ["auth"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "myservice", ["redis", "auth"], core_version="1.0.0")
 
     assert (target / "src/myservice/__main__.py").exists()
     assert (target / "src/myservice/model/user.py").exists()
     assert (target / "src/myservice/services/auth.py").exists()
     assert (target / "src/myservice/core/security.py").exists()
-    assert (target / "src/myservice/core/security_settings.py").exists()
+    assert not (target / "src/myservice/core/security_config.py").exists()
 
     config = (target / "src/myservice/core/config.py").read_text(encoding="utf-8")
-    assert "from myservice.core.security_settings import SecuritySettings" in config
+    assert "from pathlib import Path" in config
+    assert "class SecuritySettings(BaseSettings):" in config
     assert "security: SecuritySettings" in config
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
@@ -80,7 +108,7 @@ def test_generate_auth_service(tmp_path: Path, core_template: Path, modules_dir:
 
 def test_generated_project_exposes_console_script(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "scripted"
-    _engine(core_template, modules_dir).generate(target, "scripted", ["auth"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "scripted", ["redis", "auth"], core_version="1.0.0")
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert "[project.scripts]" in pyproject
@@ -97,7 +125,7 @@ def test_generated_project_exposes_console_script(tmp_path: Path, core_template:
 
 def test_generated_logging_patches_global_logger(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "logged"
-    _engine(core_template, modules_dir).generate(target, "logged", ["auth"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "logged", ["redis", "auth"], core_version="1.0.0")
 
     logging_py = (target / "src/logged/core/logging.py").read_text(encoding="utf-8")
     # The patcher must be applied to the global loguru logger, otherwise the
@@ -111,7 +139,7 @@ def test_generated_logging_patches_global_logger(tmp_path: Path, core_template: 
 
 def test_generated_project_has_makefile(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "makefile_app"
-    _engine(core_template, modules_dir).generate(target, "makefile_app", ["auth"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "makefile_app", ["redis", "auth"], core_version="1.0.0")
 
     makefile = (target / "Makefile").read_text(encoding="utf-8")
     assert "PROJECT := makefile_app" in makefile
@@ -129,7 +157,7 @@ def test_generated_project_has_makefile(tmp_path: Path, core_template: Path, mod
 
 def test_generated_dockerfile(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "dockered"
-    _engine(core_template, modules_dir).generate(target, "dockered", ["auth"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "dockered", ["redis", "auth"], core_version="1.0.0")
 
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
     assert "FROM python:3.12-slim-bookworm AS builder" in dockerfile
@@ -140,10 +168,35 @@ def test_generated_dockerfile(tmp_path: Path, core_template: Path, modules_dir: 
     assert "HEALTHCHECK" in dockerfile
     assert "/health" in dockerfile
     assert 'CMD ["dockered"]' in dockerfile
+    assert 'ENTRYPOINT ["./docker-entrypoint.sh"]' in dockerfile
     # No leftovers from the reference template.
     assert "./bash" not in dockerfile
     assert "app.sh" not in dockerfile
     assert "FAST_API_PORT" not in dockerfile
+
+
+def test_generated_project_runs_migrations_on_startup(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "migrator"
+    _engine(core_template, modules_dir).generate(target, "migrator", ["redis", "celery"], core_version="1.0.0")
+
+    entrypoint = target / "docker-entrypoint.sh"
+    assert entrypoint.exists()
+    assert "python -m migrator.scripts.init_db" in entrypoint.read_text(encoding="utf-8")
+
+    init_db = (target / "src/migrator/scripts/init_db.py").read_text(encoding="utf-8")
+    assert "get_table_names" in init_db
+    assert "command.upgrade" in init_db
+    assert "create_all" in init_db
+    assert "alembic_version" in init_db
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    api_env = compose["services"]["api"]["environment"]
+    worker_env = compose["services"]["worker"]["environment"]
+    assert "RUN_MIGRATIONS=true" in api_env
+    assert "RUN_MIGRATIONS=false" in worker_env
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
 def test_core_health_test_and_router_annotation(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -162,7 +215,7 @@ def test_items_profile_has_no_auth_security(tmp_path: Path, core_template: Path,
     _engine(core_template, modules_dir).generate(target, "items_only", ["items"], core_version="1.0.0")
 
     assert not (target / "src/items_only/core/security.py").exists()
-    assert not (target / "src/items_only/core/security_settings.py").exists()
+    assert not (target / "src/items_only/core/security_config.py").exists()
     config = (target / "src/items_only/core/config.py").read_text(encoding="utf-8")
     assert "SecuritySettings" not in config
     assert "jwt" not in config.lower()
@@ -182,7 +235,7 @@ def test_items_profile_has_no_auth_security(tmp_path: Path, core_template: Path,
 
 def test_generate_auth_and_items(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "combo"
-    _engine(core_template, modules_dir).generate(target, "combo", ["auth", "items"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "combo", ["redis", "auth", "items"], core_version="1.0.0")
 
     routes = (target / "src/combo/api/v1/routes.py").read_text(encoding="utf-8")
     assert "auth_router" in routes
@@ -202,14 +255,14 @@ def test_generate_auth_and_items(tmp_path: Path, core_template: Path, modules_di
 
 def test_generated_sources_are_syntactically_valid(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "valid"
-    _engine(core_template, modules_dir).generate(target, "valid", ["auth", "items"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "valid", ["redis", "auth", "items"], core_version="1.0.0")
     for py_file in target.rglob("*.py"):
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
 def test_no_unresolved_jinja_in_output(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "nojinja"
-    _engine(core_template, modules_dir).generate(target, "nojinja", ["auth", "items"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(target, "nojinja", ["redis", "auth", "items"], core_version="1.0.0")
     for path in target.rglob("*"):
         if not path.is_file():
             continue
@@ -232,14 +285,14 @@ def test_generate_rejects_existing_target(tmp_path: Path, core_template: Path, m
     (target / "keep.txt").write_text("data", encoding="utf-8")
 
     with pytest.raises(GenerationError, match="already exists"):
-        _engine(core_template, modules_dir).generate(target, "existing", ["auth"])
+        _engine(core_template, modules_dir).generate(target, "existing", ["redis", "auth"])
 
     assert (target / "keep.txt").read_text(encoding="utf-8") == "data"
 
 
 def test_generate_rejects_incompatible_core(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     with pytest.raises(GenerationError, match="requires core"):
-        _engine(core_template, modules_dir).generate(tmp_path / "x", "x", ["auth"], core_version="0.1.0")
+        _engine(core_template, modules_dir).generate(tmp_path / "x", "x", ["redis", "auth"], core_version="0.1.0")
 
 
 def test_generate_rejects_conflicting_file_paths(tmp_path: Path, core_template: Path) -> None:
@@ -288,3 +341,535 @@ def test_no_partial_output_on_failure(tmp_path: Path, core_template: Path) -> No
 
     assert not target.exists()
     assert not list(tmp_path.glob(".out_gen_*"))
+
+
+def test_core_exposes_infrastructure_extension_points(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "infra"
+    _engine(core_template, modules_dir).generate(target, "infra", [], core_version="1.0.0")
+
+    # lifespan replaced the old events module and carries extension markers.
+    assert (target / "src/infra/core/lifespan.py").exists()
+    assert not (target / "src/infra/core/events.py").exists()
+    lifespan = (target / "src/infra/core/lifespan.py").read_text(encoding="utf-8")
+    assert "# EXTENSION_LIFESPAN_IMPORTS" in lifespan
+    assert "# EXTENSION_LIFESPAN_STARTUP" in lifespan
+    assert "# EXTENSION_LIFESPAN_SHUTDOWN" in lifespan
+
+    main_py = (target / "src/infra/__main__.py").read_text(encoding="utf-8")
+    assert "from infra.core.lifespan import lifespan" in main_py
+    assert "# EXTENSION_MAIN_IMPORTS" in main_py
+    assert "# EXTENSION_MIDDLEWARE" in main_py
+    assert "# EXTENSION_APP_SETUP" in main_py
+
+    makefile = (target / "Makefile").read_text(encoding="utf-8")
+    assert "# EXTENSION_MAKE" in makefile
+
+    config = (target / "src/infra/core/config.py").read_text(encoding="utf-8")
+    assert "# EXTENSION_CONFIG_IMPORTS" in config
+    assert "# EXTENSION_CONFIG_CLASSES" in config
+    assert "# EXTENSION_SETTINGS" in config
+
+    # Broker-agnostic messaging facade shared by the rabbitmq/kafka modules.
+    assert (target / "src/infra/infrastructure/messaging.py").exists()
+
+    # Shared, core-owned package roots so modules never collide on __init__.py.
+    for root in ("adapters", "infrastructure", "tasks"):
+        assert (target / f"src/infra/{root}/__init__.py").exists()
+
+    compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "postgres:18-alpine" in compose
+    # Postgres 18 data directory is pinned to the mounted volume.
+    assert "PGDATA: /var/lib/postgresql/data" in compose
+    assert "# EXTENSION_COMPOSE_ENV" in compose
+    assert "# EXTENSION_COMPOSE_SERVICES" in compose
+    assert "# EXTENSION_COMPOSE_DEPENDS_ON" in compose
+    assert "# EXTENSION_COMPOSE_VOLUMES" in compose
+
+
+def test_module_fragments_extend_compose_and_lifespan(tmp_path: Path, core_template: Path) -> None:
+    modules = tmp_path / "modules"
+    _make_module_with_fragments(
+        modules,
+        "cache",
+        patches=[
+            {
+                "target": "docker-compose.yml",
+                "marker": "EXTENSION_COMPOSE_SERVICES",
+                "fragment": "fragments/service.yml",
+            },
+            {
+                "target": "docker-compose.yml",
+                "marker": "EXTENSION_COMPOSE_DEPENDS_ON",
+                "fragment": "fragments/depends.yml",
+            },
+            {
+                "target": "docker-compose.yml",
+                "marker": "EXTENSION_COMPOSE_VOLUMES",
+                "fragment": "fragments/volume.yml",
+            },
+            {
+                "target": "src/{{project_name}}/__main__.py",
+                "marker": "EXTENSION_MIDDLEWARE",
+                "fragment": "fragments/middleware.py",
+            },
+            {
+                "target": "src/{{project_name}}/core/lifespan.py",
+                "marker": "EXTENSION_LIFESPAN_STARTUP",
+                "fragment": "fragments/startup.py",
+            },
+        ],
+        fragments={
+            "service.yml": "  cache:\n    image: redis:7-alpine\n",
+            "depends.yml": "      cache:\n        condition: service_started\n",
+            "volume.yml": "  cachedata:\n",
+            "middleware.py": "        self.app.add_middleware(SomeMiddleware)\n",
+            "startup.py": "    app.state.cache = object()\n",
+        },
+    )
+
+    target = tmp_path / "out"
+    _engine(core_template, modules).generate(target, "demo", ["cache"], core_version="1.0.0")
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["cache"]["image"] == "redis:7-alpine"
+    assert "cache" in compose["services"]["api"]["depends_on"]
+    assert "cachedata" in compose["volumes"]
+
+    main_py = (target / "src/demo/__main__.py").read_text(encoding="utf-8")
+    assert "self.app.add_middleware(SomeMiddleware)" in main_py
+
+    lifespan = (target / "src/demo/core/lifespan.py").read_text(encoding="utf-8")
+    assert "app.state.cache = object()" in lifespan
+
+
+def test_generate_redis_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withredis"
+    _engine(core_template, modules_dir).generate(target, "withredis", ["redis"], core_version="1.0.0")
+
+    assert (target / "src/withredis/infrastructure/redis/client.py").exists()
+    assert (target / "src/withredis/infrastructure/redis/config.py").exists()
+    assert (target / "tests/unit_tests/redis/test_client.py").exists()
+
+    config = (target / "src/withredis/core/config.py").read_text(encoding="utf-8")
+    assert "RedisSettings" in config
+    assert "redis: RedisSettings" in config
+
+    container = (target / "src/withredis/core/container.py").read_text(encoding="utf-8")
+    assert "RedisClient" in container
+    assert "redis_client = providers.Singleton" in container
+
+    lifespan = (target / "src/withredis/core/lifespan.py").read_text(encoding="utf-8")
+    assert "container.redis_client()" in lifespan
+    assert "await redis_client.close()" in lifespan
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["redis"]["image"] == "redis:8-alpine"
+    assert "redis" in compose["services"]["api"]["depends_on"]
+    assert "redisdata" in compose["volumes"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "redis>=" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_rabbitmq_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withrabbit"
+    _engine(core_template, modules_dir).generate(target, "withrabbit", ["rabbitmq"], core_version="1.0.0")
+
+    assert (target / "src/withrabbit/infrastructure/rabbitmq/broker.py").exists()
+    assert (target / "src/withrabbit/infrastructure/rabbitmq/config.py").exists()
+    assert (target / "tests/unit_tests/rabbitmq/test_broker.py").exists()
+
+    config = (target / "src/withrabbit/core/config.py").read_text(encoding="utf-8")
+    assert "RabbitMQSettings" in config
+    assert "rabbitmq: RabbitMQSettings" in config
+
+    container = (target / "src/withrabbit/core/container.py").read_text(encoding="utf-8")
+    assert "create_rabbitmq_broker" in container
+    assert "rabbitmq_broker = providers.Singleton" in container
+
+    lifespan = (target / "src/withrabbit/core/lifespan.py").read_text(encoding="utf-8")
+    assert "container.rabbitmq_broker()" in lifespan
+    assert "await rabbitmq_broker.stop()" in lifespan
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["rabbitmq"]["image"] == "rabbitmq:4-management-alpine"
+    assert "rabbitmq" in compose["services"]["api"]["depends_on"]
+    assert "rabbitmqdata" in compose["volumes"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "faststream[rabbit]" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_kafka_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withkafka"
+    _engine(core_template, modules_dir).generate(target, "withkafka", ["kafka"], core_version="1.0.0")
+
+    assert (target / "src/withkafka/infrastructure/kafka/broker.py").exists()
+    assert (target / "src/withkafka/infrastructure/kafka/config.py").exists()
+    assert (target / "tests/unit_tests/kafka/test_broker.py").exists()
+
+    config = (target / "src/withkafka/core/config.py").read_text(encoding="utf-8")
+    assert "KafkaSettings" in config
+    assert "kafka: KafkaSettings" in config
+
+    container = (target / "src/withkafka/core/container.py").read_text(encoding="utf-8")
+    assert "create_kafka_broker" in container
+    assert "kafka_broker = providers.Singleton" in container
+
+    lifespan = (target / "src/withkafka/core/lifespan.py").read_text(encoding="utf-8")
+    assert "container.kafka_broker()" in lifespan
+    assert "await kafka_broker.stop()" in lifespan
+
+    # Kafka is an external/managed broker: no compose service is generated.
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "kafka" not in compose["services"]
+    assert "kafka" not in compose["services"]["api"]["depends_on"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "faststream[kafka]" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_celery_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withcelery"
+    _engine(core_template, modules_dir).generate(target, "withcelery", ["redis", "celery"], core_version="1.0.0")
+
+    assert (target / "src/withcelery/infrastructure/celery/app.py").exists()
+    assert (target / "src/withcelery/infrastructure/celery/config.py").exists()
+    assert (target / "tests/unit_tests/celery/test_app.py").exists()
+
+    config = (target / "src/withcelery/core/config.py").read_text(encoding="utf-8")
+    assert "CelerySettings" in config
+    assert "celery: CelerySettings" in config
+
+    container = (target / "src/withcelery/core/container.py").read_text(encoding="utf-8")
+    assert "celery_app = providers.Singleton" in container
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "worker" in compose["services"]
+    assert "redis" in compose["services"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "celery[redis]" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_celery_requires_redis(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    with pytest.raises(GenerationError, match="requires 'redis'"):
+        _engine(core_template, modules_dir).generate(tmp_path / "x", "x", ["celery"], core_version="1.0.0")
+
+
+def test_generate_rate_limit_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withlimits"
+    _engine(core_template, modules_dir).generate(target, "withlimits", ["redis", "rate-limit"], core_version="1.0.0")
+
+    assert (target / "src/withlimits/core/middleware/rate_limit.py").exists()
+    assert (target / "src/withlimits/services/rate_limit.py").exists()
+    assert not (target / "src/withlimits/core/middleware/rate_limit_config.py").exists()
+    assert (target / "tests/unit_tests/rate_limit/test_rate_limit.py").exists()
+
+    main_py = (target / "src/withlimits/__main__.py").read_text(encoding="utf-8")
+    assert "RateLimitMiddleware" in main_py
+    assert "add_middleware(" in main_py
+
+    deps = (target / "src/withlimits/core/dependencies.py").read_text(encoding="utf-8")
+    assert "rate_limit" in deps
+
+    config = (target / "src/withlimits/core/config.py").read_text(encoding="utf-8")
+    assert "class RateLimitSettings(BaseSettings):" in config
+    assert "rate_limit: RateLimitSettings" in config
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_mfa_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withmfa"
+    _engine(core_template, modules_dir).generate(
+        target, "withmfa", ["redis", "auth", "email", "mfa"], core_version="1.0.0"
+    )
+
+    assert (target / "src/withmfa/model/mfa.py").exists()
+    assert (target / "src/withmfa/services/mfa.py").exists()
+    assert (target / "src/withmfa/services/mfa_code_store.py").exists()
+    assert not (target / "src/withmfa/services/mfa_config.py").exists()
+    assert (target / "src/withmfa/adapters/email/config.py").exists()
+    assert (target / "src/withmfa/api/v1/endpoints/mfa.py").exists()
+
+    config = (target / "src/withmfa/core/config.py").read_text(encoding="utf-8")
+    assert "class MfaSettings(BaseSettings):" in config
+    assert "mfa: MfaSettings" in config
+
+    container = (target / "src/withmfa/core/container.py").read_text(encoding="utf-8")
+    assert "mfa_service = providers.Factory" in container
+    assert "withmfa.api.v1.endpoints.mfa" in container
+
+    models = (target / "src/withmfa/model/__init__.py").read_text(encoding="utf-8")
+    assert "from withmfa.model.mfa import MfaCredential" in models
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "pyotp" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_mfa_requires_auth_and_email(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    with pytest.raises(GenerationError, match="requires 'auth'"):
+        _engine(core_template, modules_dir).generate(
+            tmp_path / "x", "x", ["redis", "email", "mfa"], core_version="1.0.0"
+        )
+
+
+def test_generate_logging_elasticsearch_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withesp"
+    _engine(core_template, modules_dir).generate(target, "withesp", ["logging-elasticsearch"], core_version="1.0.0")
+
+    assert (target / "src/withesp/infrastructure/logging/elasticsearch.py").exists()
+    assert (target / "src/withesp/infrastructure/logging/config.py").exists()
+    assert (target / "src/withesp/infrastructure/logging/config.py").exists()
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "elasticsearch" in compose["services"]
+    assert "esdata" in compose["volumes"]
+
+    lifespan = (target / "src/withesp/core/lifespan.py").read_text(encoding="utf-8")
+    assert "ElasticsearchLogSink" in lifespan
+    assert "add_log_sink" in lifespan
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "elasticsearch" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_openai_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withopenai"
+    _engine(core_template, modules_dir).generate(target, "withopenai", ["openai"], core_version="1.0.0")
+
+    assert (target / "src/withopenai/adapters/openai/interface.py").exists()
+    assert (target / "src/withopenai/adapters/openai/client.py").exists()
+    assert (target / "src/withopenai/adapters/openai/config.py").exists()
+    assert (target / "src/withopenai/services/openai_tasks.py").exists()
+
+    container = (target / "src/withopenai/core/container.py").read_text(encoding="utf-8")
+    assert "OpenAITextGenerator" in container
+    assert "openai_service = providers.Factory" in container
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "openai" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_s3_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withs3"
+    _engine(core_template, modules_dir).generate(target, "withs3", ["s3"], core_version="1.0.0")
+
+    assert (target / "src/withs3/adapters/s3/interface.py").exists()
+    assert (target / "src/withs3/adapters/s3/client.py").exists()
+    assert (target / "src/withs3/adapters/s3/config.py").exists()
+    assert (target / "src/withs3/services/storage.py").exists()
+
+    container = (target / "src/withs3/core/container.py").read_text(encoding="utf-8")
+    assert "S3Storage" in container
+    assert "storage_service = providers.Factory" in container
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "aioboto3" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_push_notifications_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withpush"
+    _engine(core_template, modules_dir).generate(
+        target, "withpush", ["redis", "celery", "push-notifications"], core_version="1.0.0"
+    )
+
+    assert (target / "src/withpush/adapters/firebase/client.py").exists()
+    assert (target / "src/withpush/adapters/firebase/config.py").exists()
+    assert (target / "src/withpush/services/notifications.py").exists()
+    assert (target / "src/withpush/tasks/notifications.py").exists()
+
+    tasks_init = (target / "src/withpush/tasks/__init__.py").read_text(encoding="utf-8")
+    assert "from withpush.tasks.notifications import send_push" in tasks_init
+
+    container = (target / "src/withpush/core/container.py").read_text(encoding="utf-8")
+    assert "notification_service = providers.Factory" in container
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "firebase-admin" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_users_profiles_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withprofiles"
+    _engine(core_template, modules_dir).generate(
+        target, "withprofiles", ["redis", "auth", "users-profiles"], core_version="1.0.0"
+    )
+
+    assert (target / "src/withprofiles/model/profile.py").exists()
+    assert (target / "src/withprofiles/repository/profile.py").exists()
+    assert (target / "src/withprofiles/services/users.py").exists()
+    assert (target / "src/withprofiles/api/v1/endpoints/users.py").exists()
+
+    models = (target / "src/withprofiles/model/__init__.py").read_text(encoding="utf-8")
+    assert "from withprofiles.model.profile import Profile" in models
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_roles_permissions_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withroles"
+    _engine(core_template, modules_dir).generate(
+        target,
+        "withroles",
+        ["redis", "auth", "users-profiles", "roles-permissions"],
+        core_version="1.0.0",
+    )
+
+    assert (target / "src/withroles/model/role.py").exists()
+    assert (target / "src/withroles/model/permission.py").exists()
+    assert (target / "src/withroles/services/permissions.py").exists()
+    assert (target / "src/withroles/services/permission_dependencies.py").exists()
+
+    container = (target / "src/withroles/core/container.py").read_text(encoding="utf-8")
+    assert "permission_service = providers.Factory" in container
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_fragments_are_applied_in_dependency_order(tmp_path: Path, core_template: Path) -> None:
+    modules = tmp_path / "modules"
+    patch = {
+        "target": "src/{{project_name}}/core/dependencies.py",
+        "marker": "EXTENSION_DEPENDENCIES",
+        "fragment": "fragments/snippet.py",
+    }
+    _make_module_with_fragments(
+        modules,
+        "beta",
+        patches=[patch],
+        fragments={"snippet.py": "BETA = 1\n"},
+    )
+    _make_module_with_fragments(
+        modules,
+        "alpha",
+        patches=[patch],
+        fragments={"snippet.py": "ALPHA = BETA\n"},
+        requires={"core": ">=1.0.0", "modules": ["beta"]},
+    )
+
+    target = tmp_path / "ordered"
+    # Pass modules alphabetically: the engine must still emit beta before alpha.
+    _engine(core_template, modules).generate(target, "ordered", ["alpha", "beta"])
+
+    content = (target / "src/ordered/core/dependencies.py").read_text(encoding="utf-8")
+    assert content.index("BETA = 1") < content.index("ALPHA = BETA")
+
+
+def test_generate_flower_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withflower"
+    _engine(core_template, modules_dir).generate(
+        target, "withflower", ["redis", "celery", "flower"], core_version="1.0.0"
+    )
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "flower" in compose["services"]
+    assert compose["services"]["flower"]["ports"] == ["${FLOWER_PORT:-5555}:5555"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "flower" in pyproject
+
+
+def test_generate_celery_beat_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withbeat"
+    _engine(core_template, modules_dir).generate(
+        target, "withbeat", ["redis", "celery", "celery-beat"], core_version="1.0.0"
+    )
+
+    assert (target / "src/withbeat/infrastructure/celery/beat.py").exists()
+    assert (target / "src/withbeat/tasks/beat.py").exists()
+
+    app = (target / "src/withbeat/infrastructure/celery/app.py").read_text(encoding="utf-8")
+    assert "BEAT_SCHEDULE" in app
+    assert "app.conf.beat_schedule" in app
+
+    tasks_init = (target / "src/withbeat/tasks/__init__.py").read_text(encoding="utf-8")
+    assert "from withbeat.tasks.beat import heartbeat" in tasks_init
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "beat" in compose["services"]
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_prometheus_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withmetrics"
+    _engine(core_template, modules_dir).generate(target, "withmetrics", ["prometheus"], core_version="1.0.0")
+
+    assert (target / "src/withmetrics/infrastructure/prometheus/instrumentation.py").exists()
+    assert (target / "src/withmetrics/infrastructure/prometheus/prometheus.yml").exists()
+    assert (target / "src/withmetrics/infrastructure/prometheus/config.py").exists()
+
+    main_py = (target / "src/withmetrics/__main__.py").read_text(encoding="utf-8")
+    assert "setup_metrics" in main_py
+    assert "settings.prometheus.ENABLED" in main_py
+
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "prometheus" in compose["services"]
+    assert "prometheusdata" in compose["volumes"]
+
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "prometheus-fastapi-instrumentator" in pyproject
+
+    for py_file in target.rglob("*.py"):
+        compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_caddy_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withcaddy"
+    _engine(core_template, modules_dir).generate(target, "withcaddy", ["redis", "auth", "caddy"], core_version="1.0.0")
+
+    caddyfile = (target / "Caddyfile").read_text(encoding="utf-8")
+    assert "reverse_proxy api:{$API_PORT:9000}" in caddyfile
+
+    prod = (target / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    assert "ports: !reset []" in prod
+    assert "caddy:2-alpine" in prod
+    assert "443:443" in prod
+
+    makefile = (target / "Makefile").read_text(encoding="utf-8")
+    assert "\nprod-up:" in makefile
+    assert "-f docker-compose.prod.yml up -d --build" in makefile
+
+    # Dev stack keeps the API port open and has no Caddy service.
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "caddy" not in compose["services"]
+    assert compose["services"]["api"]["ports"] == ["${API_PORT:-9000}:${API_PORT:-9000}"]
+
+
+def test_caddy_requires_nothing_but_is_standalone(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "caddyonly"
+    _engine(core_template, modules_dir).generate(target, "caddyonly", ["caddy"], core_version="1.0.0")
+    assert (target / "Caddyfile").exists()
+    assert (target / "docker-compose.prod.yml").exists()

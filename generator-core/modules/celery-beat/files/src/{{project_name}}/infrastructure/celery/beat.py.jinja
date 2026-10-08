@@ -1,0 +1,21 @@
+"""Periodic task schedule for Celery Beat.
+
+Add entries here to run tasks on a cron/interval schedule. For cron schedules
+import ``crontab`` from ``celery.schedules`` first::
+
+    from celery.schedules import crontab
+
+    BEAT_SCHEDULE = {
+        "cleanup": {
+            "task": "{{project_name}}.tasks.cleanup",
+            "schedule": crontab(hour=3, minute=0),
+        },
+    }
+"""
+
+BEAT_SCHEDULE: dict = {
+    "heartbeat": {
+        "task": "beat.heartbeat",
+        "schedule": 60.0,
+    },
+}

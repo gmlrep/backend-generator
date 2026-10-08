@@ -1,0 +1,16 @@
+from loguru import logger
+
+from {{project_name}}.infrastructure.logging.interface import LogSink
+
+
+def add_log_sink(sink: LogSink, level: str = "INFO") -> int:
+    """Forward Loguru records to ``sink`` and return the Loguru handler id."""
+
+    def _sink(message) -> None:  # type: ignore[no-untyped-def]
+        sink.write(message.record["message"])
+
+    return logger.add(_sink, level=level)
+
+
+def remove_log_sink(handler_id: int) -> None:
+    logger.remove(handler_id)

@@ -1,0 +1,60 @@
+from collections.abc import Awaitable, Callable
+
+from fastapi import HTTPException, Request
+from loguru import logger
+
+from {{project_name}}.infrastructure.redis.client import RedisClient
+
+
+class RateLimitService:
+    """Fixed-window rate limiter backed by Redis.
+
+    The window starts on the first request and is implemented with
+    ``INCR`` + ``EXPIRE``. When Redis is unavailable the limiter fails open
+    (the request is allowed) so an outage never takes the whole API down.
+    """
+
+    def __init__(self, redis_client: RedisClient, limit: int = 100, window: int = 60) -> None:
+        self.redis_client = redis_client
+        self.limit = limit
+        self.window = window
+
+    async def is_allowed(self, identifier: str) -> bool:
+        key = f"rate_limit:{identifier}"
+        try:
+            current = await self.redis_client.incr(key)
+            if current == 1:
+                await self.redis_client.expire(key, self.window)
+        except Exception as exc:
+            logger.warning("Rate limit backend unavailable, allowing request: {}", exc)
+            return True
+        return current <= self.limit
+
+    async def remaining(self, identifier: str) -> int:
+        try:
+            value = await self.redis_client.get(f"rate_limit:{identifier}")
+        except Exception as exc:
+            logger.warning("Rate limit backend unavailable: {}", exc)
+            return self.limit
+        used = int(value) if value else 0
+        return max(self.limit - used, 0)
+
+
+def rate_limit(limit: int, window: int = 60, scope: str = "default") -> Callable[[Request], Awaitable[None]]:
+    """FastAPI dependency factory enforcing a per-client limit.
+
+    Usage::
+
+        @router.get("/expensive", dependencies=[Depends(rate_limit(limit=5, window=60))])
+        async def expensive() -> ...:
+            ...
+    """
+
+    async def dependency(request: Request) -> None:
+        redis_client: RedisClient = request.app.state.redis_client
+        service = RateLimitService(redis_client, limit=limit, window=window)
+        identifier = request.client.host if request.client else "unknown"
+        if not await service.is_allowed(f"{scope}:{identifier}:{request.url.path}"):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    return dependency

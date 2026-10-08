@@ -1,9 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import jwt
 from fastapi import HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBasic,
+    HTTPBearer,
+    OAuth2PasswordBearer,
+)
 from pwdlib import PasswordHash
 from pwdlib.hashers.bcrypt import BcryptHasher
 from starlette.concurrency import run_in_threadpool
@@ -13,16 +19,34 @@ from {{project_name}}.core.exceptions import AuthError
 
 password_hash = PasswordHash([BcryptHasher()])
 
+ACCESS_TOKEN_TYPE = "access"
+REFRESH_TOKEN_TYPE = "refresh"
 
-def create_access_token(subject: dict, expires_delta: timedelta | None = None) -> tuple[str, datetime]:
-    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.security.JWT_EXPIRES_MINUTES))
-    payload = {"exp": expire, **subject}
-    encoded_jwt = jwt.encode(
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api.API_PREFIX}/v1/auth/token")
+basic_scheme = HTTPBasic(auto_error=False)
+
+
+def _create_token(subject: dict[str, Any], token_type: str, expires_delta: timedelta) -> tuple[str, datetime, str]:
+    now = datetime.now(UTC)
+    expire = now + expires_delta
+    jti = uuid4().hex
+    payload = {**subject, "type": token_type, "jti": jti, "iat": now, "exp": expire}
+    encoded = jwt.encode(
         payload,
         settings.security.get_signing_key(),
         algorithm=settings.security.JWT_ALGORITHM,
     )
-    return encoded_jwt, expire
+    return encoded, expire, jti
+
+
+def create_access_token(subject: dict[str, Any]) -> tuple[str, datetime, str]:
+    """Return ``(token, expiration, jti)`` for a short-lived access token."""
+    return _create_token(subject, ACCESS_TOKEN_TYPE, timedelta(minutes=settings.security.JWT_EXPIRES_MINUTES))
+
+
+def create_refresh_token(subject: dict[str, Any]) -> tuple[str, datetime, str]:
+    """Return ``(token, expiration, jti)`` for a long-lived refresh token."""
+    return _create_token(subject, REFRESH_TOKEN_TYPE, timedelta(days=settings.security.JWT_REFRESH_EXPIRES_DAYS))
 
 
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -33,20 +57,27 @@ async def get_password_hash(password: str) -> str:
     return await run_in_threadpool(password_hash.hash, password)
 
 
-def decode_jwt(token: str) -> dict[str, Any]:
+def decode_jwt(token: str, expected_type: str | None = None) -> dict[str, Any]:
+    """Decode and validate a JWT, optionally enforcing its ``type`` claim."""
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             key=settings.security.get_verification_key(),
             algorithms=[settings.security.JWT_ALGORITHM],
         )
     except jwt.ExpiredSignatureError as e:
-        raise HTTPException(status_code=401, detail="Access token has expired") from e
+        raise HTTPException(status_code=401, detail="Token has expired") from e
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail="Incorrect token") from e
 
+    if expected_type is not None and payload.get("type") != expected_type:
+        raise HTTPException(status_code=401, detail="Incorrect token type")
+    return payload
+
 
 class JWTBearer(HTTPBearer):
+    """Bearer scheme that accepts only valid ``access`` tokens."""
+
     def __init__(self, auto_error: bool = True) -> None:
         super().__init__(auto_error=auto_error)
 
@@ -62,7 +93,7 @@ class JWTBearer(HTTPBearer):
 
     def verify_jwt(self, jwt_token: str) -> bool:
         try:
-            payload = decode_jwt(jwt_token)
+            payload = decode_jwt(jwt_token, expected_type=ACCESS_TOKEN_TYPE)
         except HTTPException:
             return False
         return bool(payload)

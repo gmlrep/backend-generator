@@ -1,0 +1,10 @@
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{project_name}}.model.base_model import BaseModel
+
+
+class Permission(BaseModel):
+    __tablename__ = "permission"
+
+    code: Mapped[str] = mapped_column(unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(nullable=True)

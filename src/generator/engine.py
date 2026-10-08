@@ -203,6 +203,29 @@ class Engine:
             if m_id not in visited:
                 dfs(m_id)
 
+    def _topological_order(self, manifests: list[ModuleManifest]) -> list[ModuleManifest]:
+        """Return manifests ordered so dependencies come before dependents.
+
+        File copies do not care about order, but fragment insertion does: a
+        fragment may reference a provider created by a module it requires.
+        """
+        by_id = {m.id: m for m in manifests}
+        ordered: list[ModuleManifest] = []
+        visited: set[str] = set()
+
+        def visit(module_id: str) -> None:
+            if module_id in visited:
+                return
+            visited.add(module_id)
+            for dependency in by_id[module_id].requires_modules:
+                if dependency in by_id:
+                    visit(dependency)
+            ordered.append(by_id[module_id])
+
+        for manifest in manifests:
+            visit(manifest.id)
+        return ordered
+
     def generate(
         self,
         target_dir: Path,
@@ -224,6 +247,9 @@ class Engine:
             manifests.append(parse_manifest(manifest_path))
 
         self._validate_graph(manifests, core_version)
+        # Apply fragments in dependency order so a module can reference providers
+        # defined by the modules it requires (for example auth uses redis_client).
+        manifests = self._topological_order(manifests)
 
         context = {"project_name": project_name}
 

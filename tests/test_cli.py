@@ -225,17 +225,53 @@ def test_cli_list_modules(tmp_path: Path, modules_dir: Path) -> None:
     assert result.exit_code == 0
     assert "auth" in result.output
     assert "items" in result.output
+    # Required modules are shown next to the module id.
+    assert "requires:" in result.output
+
+
+def _patch_prompts(
+    monkeypatch,
+    *,
+    selects: list | None = None,
+    texts: list | None = None,
+    confirms: list | None = None,
+    checkboxes: list | None = None,
+) -> None:
+    """Script questionary answers without touching a real terminal."""
+    from collections import deque
+
+    queues = {
+        "select": deque(selects or []),
+        "text": deque(texts or []),
+        "confirm": deque(confirms or []),
+        "checkbox": deque(checkboxes or []),
+    }
+    monkeypatch.setattr("generator.cli._ask_select", lambda *a, **k: queues["select"].popleft())
+    monkeypatch.setattr("generator.cli._ask_text", lambda *a, **k: queues["text"].popleft())
+    monkeypatch.setattr("generator.cli._ask_confirm", lambda *a, **k: queues["confirm"].popleft())
+    monkeypatch.setattr("generator.cli._ask_checkbox", lambda *a, **k: queues["checkbox"].popleft())
+
+
+def test_project_name_validator() -> None:
+    from generator.cli import _validate_project_name_answer
+
+    assert _validate_project_name_answer("valid_name") is True
+    assert isinstance(_validate_project_name_answer("1bad"), str)
 
 
 def test_cli_bare_command_opens_interactive_menu(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    runner = CliRunner()
-    # menu -> project name -> profile -> vcs -> venv (no)
-    result = runner.invoke(cli, [], input="1\nmenu_app\n1\n1\nn\n")
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "auth-service", "github"],
+        texts=["menu_app"],
+        confirms=[False],
+        checkboxes=[[]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
     assert result.exit_code == 0, result.output
-    assert "What would you like to do?" in result.output
-    assert "Select a service to generate" in result.output
-    assert "Create a virtual environment" in result.output
     assert (tmp_path / "menu_app" / "src" / "menu_app" / "__main__.py").exists()
     assert (tmp_path / "menu_app" / ".env.example").exists()
 
@@ -249,21 +285,77 @@ def test_cli_interactive_venv_is_created_when_selected(tmp_path: Path, monkeypat
         return True
 
     monkeypatch.setattr("generator.cli._setup_venv", fake_setup)
-    runner = CliRunner()
-    result = runner.invoke(cli, [], input="1\nvenv_app\n1\n1\ny\n")
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "auth-service", "github"],
+        texts=["venv_app"],
+        confirms=[True],
+        checkboxes=[[]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
     assert result.exit_code == 0, result.output
     assert called["target"] == tmp_path / "venv_app"
 
 
-def test_cli_interactive_reprompts_on_invalid_name(tmp_path: Path, monkeypatch) -> None:
+def test_cli_interactive_items_profile(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    runner = CliRunner()
-    result = runner.invoke(cli, [], input="1\n1bad\nvalid_name\n2\n1\nn\n")
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "items-service", "github"],
+        texts=["valid_name"],
+        confirms=[False],
+        checkboxes=[[]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
     assert result.exit_code == 0, result.output
-    assert "Invalid name" in result.output
     assert (tmp_path / "valid_name" / "src" / "valid_name" / "__main__.py").exists()
     # items-service profile: no auth-owned security module
     assert not (tmp_path / "valid_name" / "src" / "valid_name" / "core" / "security.py").exists()
+
+
+def test_cli_interactive_custom_modules(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "custom", "github"],
+        texts=["custom_app"],
+        confirms=[False],
+        checkboxes=[["redis", "auth"]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
+    assert result.exit_code == 0, result.output
+    base = tmp_path / "custom_app" / "src" / "custom_app"
+    assert (base / "core" / "security.py").exists()
+    assert (base / "model" / "user.py").exists()
+    assert (base / "infrastructure" / "redis" / "client.py").exists()
+
+
+def test_cli_interactive_custom_expands_requirements(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "custom", "github"],
+        texts=["custom_mfa"],
+        confirms=[False],
+        checkboxes=[["mfa"]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
+    assert result.exit_code == 0, result.output
+    base = tmp_path / "custom_mfa" / "src" / "custom_mfa"
+    assert (base / "model" / "mfa.py").exists()
+    # mfa requires auth, redis and email, which are pulled in automatically.
+    assert (base / "core" / "security.py").exists()
+    assert (base / "adapters" / "email" / "config.py").exists()
+    assert (base / "infrastructure" / "redis" / "client.py").exists()
+    assert "[modules] Required dependencies added:" in result.output
 
 
 def test_cli_interactive_confirm_overwrite(tmp_path: Path, monkeypatch) -> None:
@@ -272,9 +364,16 @@ def test_cli_interactive_confirm_overwrite(tmp_path: Path, monkeypatch) -> None:
     target.mkdir()
     (target / "stale.txt").write_text("old", encoding="utf-8")
 
-    runner = CliRunner()
-    # menu -> name -> profile -> vcs -> overwrite (yes) -> venv (no)
-    result = runner.invoke(cli, [], input="1\nexisting_app\n1\n1\ny\nn\n")
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "auth-service", "github"],
+        texts=["existing_app"],
+        confirms=[True, False],
+        checkboxes=[[]],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
     assert result.exit_code == 0, result.output
     assert not (target / "stale.txt").exists()
     assert (target / "src" / "existing_app" / "__main__.py").exists()
