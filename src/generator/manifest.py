@@ -62,13 +62,9 @@ def parse_manifest(path: Path, *, expected_id: str | None = None) -> ModuleManif
 
     directory_name = path.parent.name
     if expected_id is not None and manifest_id != expected_id:
-        raise ManifestError(
-            f"Module directory '{expected_id}' declares id '{manifest_id}' (must match)"
-        )
+        raise ManifestError(f"Module directory '{expected_id}' declares id '{manifest_id}' (must match)")
     if manifest_id != directory_name:
-        raise ManifestError(
-            f"Module '{manifest_id}': manifest id must match directory name '{directory_name}'"
-        )
+        raise ManifestError(f"Module '{manifest_id}': manifest id must match directory name '{directory_name}'")
 
     manifest_version = _extract_str(raw, "manifest_version", manifest_id)
     if manifest_version != "1":

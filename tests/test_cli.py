@@ -170,9 +170,7 @@ def test_cli_compose_services_flower_with_celery(
     assert (tmp_path / "withflower" / "src" / "withflower" / "infrastructure" / "celery" / "app.py").exists()
 
 
-def test_cli_compose_services_kafka_flag(
-    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
-) -> None:
+def test_cli_compose_services_kafka_flag(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = _invoke(
         tmp_path,
@@ -251,9 +249,7 @@ def test_cli_interactive_compose_offers_caddy(tmp_path: Path, monkeypatch) -> No
     assert (tmp_path / "caddy_app" / "Caddyfile").exists()
 
 
-def test_cli_compose_services_caddy_flag(
-    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
-) -> None:
+def test_cli_compose_services_caddy_flag(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = _invoke(
         tmp_path,

@@ -147,7 +147,7 @@ class Engine:
         context: dict[str, Any],
         occupied: set[str],
     ) -> None:
-        file_owners: dict[str, str] = {path: "<core>" for path in occupied}
+        file_owners: dict[str, str] = dict.fromkeys(occupied, "<core>")
         for manifest in manifests:
             files_dir = self.modules_dir / manifest.id / "files"
             if not files_dir.exists():
@@ -212,9 +212,7 @@ class Engine:
                 try:
                     req = Requirement(dep)
                 except InvalidRequirement as exc:
-                    raise GenerationError(
-                        f"Module '{manifest.id}': invalid python dependency '{dep}': {exc}"
-                    ) from exc
+                    raise GenerationError(f"Module '{manifest.id}': invalid python dependency '{dep}': {exc}") from exc
                 key = req.name.lower()
                 if key in by_name and by_name[key] != dep:
                     raise GenerationError(
@@ -286,7 +284,9 @@ class Engine:
             if module_id in resolved:
                 continue
             if not _MODULE_ID_RE.match(module_id):
-                raise GenerationError(f"Invalid module id '{module_id}': use lowercase letters, digits and hyphens only")
+                raise GenerationError(
+                    f"Invalid module id '{module_id}': use lowercase letters, digits and hyphens only"
+                )
             module_dir = _ensure_inside(self.modules_dir, self.modules_dir / module_id, label=f"Module '{module_id}'")
             manifest_path = module_dir / "manifest.yaml"
             if not manifest_path.exists():

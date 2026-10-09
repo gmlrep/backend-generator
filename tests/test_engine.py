@@ -311,9 +311,7 @@ def test_generate_rejects_missing_required_module(tmp_path: Path, core_template:
         _engine(core_template, modules).generate(tmp_path / "out", "demo", ["beta"])
 
 
-def test_generate_rejects_kafka_and_rabbitmq_together(
-    tmp_path: Path, core_template: Path, modules_dir: Path
-) -> None:
+def test_generate_rejects_kafka_and_rabbitmq_together(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     with pytest.raises(GenerationError, match="conflicts with"):
         _engine(core_template, modules_dir).generate(
             tmp_path / "brokers", "brokers", ["rabbitmq", "kafka"], core_version="1.0.0"
@@ -333,9 +331,7 @@ def test_overwrite_preserves_backup_on_swap(tmp_path: Path, core_template: Path,
 
 def test_rejects_module_path_traversal(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     with pytest.raises(GenerationError, match="Invalid module id"):
-        _engine(core_template, modules_dir).generate(
-            tmp_path / "evil", "evil", ["../etc"], core_version="1.0.0"
-        )
+        _engine(core_template, modules_dir).generate(tmp_path / "evil", "evil", ["../etc"], core_version="1.0.0")
 
 
 def test_rejects_target_file_without_overwrite(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -552,9 +548,7 @@ def test_generate_rabbitmq_module(tmp_path: Path, core_template: Path, modules_d
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
-def test_generate_rabbitmq_with_compose_service(
-    tmp_path: Path, core_template: Path, modules_dir: Path
-) -> None:
+def test_generate_rabbitmq_with_compose_service(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "withrabbitc"
     _engine(core_template, modules_dir).generate(
         target,
@@ -605,9 +599,7 @@ def test_generate_kafka_module(tmp_path: Path, core_template: Path, modules_dir:
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
-def test_generate_kafka_with_compose_service(
-    tmp_path: Path, core_template: Path, modules_dir: Path
-) -> None:
+def test_generate_kafka_with_compose_service(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "withkafkac"
     _engine(core_template, modules_dir).generate(
         target,

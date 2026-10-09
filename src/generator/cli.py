@@ -103,9 +103,7 @@ def _validate_target_dir(target: Path, allow_overwrite: bool) -> None:
         return
     if target.is_file():
         if not allow_overwrite:
-            raise click.BadParameter(
-                f"Path {target} exists and is a file. Use --allow-overwrite to replace it."
-            )
+            raise click.BadParameter(f"Path {target} exists and is a file. Use --allow-overwrite to replace it.")
         return
     if target.is_dir() and any(target.iterdir()) and not allow_overwrite:
         raise click.BadParameter(f"Directory {target} already exists and is not empty. Use --allow-overwrite to force.")
@@ -349,13 +347,14 @@ def _ask_checkbox_with_back(message: str, choices: Any) -> Any:
         message,
         choices=choices,
         instruction=(
-            "(Use arrow keys to move, <space> to select, <a> to toggle, <i> to invert, "
-            "<backspace> to go back)"
+            "(Use arrow keys to move, <space> to select, <a> to toggle, <i> to invert, <backspace> to go back)"
         ),
     )
     bindings = question.application.key_bindings
+    if bindings is None:
+        raise RuntimeError("checkbox application has no key bindings")
 
-    @bindings.add(Keys.Backspace, eager=True)
+    @bindings.add(Keys.Backspace, eager=True)  # type: ignore[attr-defined]
     def _go_back(event: Any) -> None:
         event.app.exit(result=_GO_BACK)
 
@@ -568,9 +567,7 @@ def _parse_compose_services_flag(raw: str) -> set[str]:
         if not name:
             continue
         if name not in allowed:
-            raise GenerationError(
-                f"Unknown compose service '{name}'. Allowed: {', '.join(sorted(allowed))}"
-            )
+            raise GenerationError(f"Unknown compose service '{name}'. Allowed: {', '.join(sorted(allowed))}")
         chosen.add(name)
     return chosen
 
