@@ -11,3 +11,4 @@ class User(BaseSchema):
 
 class FindUser(BaseSchema):
     email__eq: str | None = None
+    is_superuser__eq: bool | None = None

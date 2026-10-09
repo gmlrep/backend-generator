@@ -2,7 +2,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from generator.cli import cli
+from generator.cli import _generator_data_root, _load_core_version, _resolve_paths, cli
 
 
 def _invoke(tmp_path: Path, core_template: Path, modules_dir: Path, extra: list[str], name: str):
@@ -21,6 +21,31 @@ def _invoke(tmp_path: Path, core_template: Path, modules_dir: Path, extra: list[
             *extra,
         ],
     )
+
+
+def test_generator_data_root_finds_repo_layout() -> None:
+    root = _generator_data_root()
+    assert (root / "generator-core" / "core_template").is_dir()
+    assert _load_core_version(root) == "1.0.0"
+    core, modules, data_root = _resolve_paths(None, None)
+    assert core == data_root / "generator-core" / "core_template"
+    assert modules == data_root / "generator-core" / "modules"
+
+
+def test_generator_data_root_installed_layout(tmp_path: Path, monkeypatch) -> None:
+    """Simulate a wheel install: generator package beside generator-core."""
+    site = tmp_path / "site-packages"
+    pkg = site / "generator"
+    pkg.mkdir(parents=True)
+    fake_cli = pkg / "cli.py"
+    fake_cli.write_text("# placeholder\n", encoding="utf-8")
+    core = site / "generator-core" / "core_template"
+    core.mkdir(parents=True)
+    (site / "generator-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+
+    monkeypatch.setattr("generator.cli.__file__", str(fake_cli))
+    assert _generator_data_root() == site
+    assert _load_core_version(site) == "1.0.0"
 
 
 def test_cli_non_interactive_create(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
@@ -71,7 +96,7 @@ def test_cli_env_example_omits_jwt_without_auth(
     tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    result = _invoke(tmp_path, core_template, modules_dir, ["--profile", "items-service"], "noauth")
+    result = _invoke(tmp_path, core_template, modules_dir, ["--profile", "minimal"], "noauth")
     assert result.exit_code == 0, result.output
     env = (tmp_path / "noauth" / ".env.example").read_text(encoding="utf-8")
     assert "JWT_SECRET" not in env
@@ -126,6 +151,129 @@ def test_cli_gitlab_ci(tmp_path: Path, core_template: Path, modules_dir: Path, m
     assert "uv run mypy src" in ci
     assert "uv run pytest -q" in ci
     assert "[ci] gitlab CI created." in result.output
+
+
+def test_cli_compose_services_flower_with_celery(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--modules", "celery", "--compose-services", "flower", "--non-interactive"],
+        "withflower",
+    )
+    assert result.exit_code == 0, result.output
+    compose = (tmp_path / "withflower" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "flower:" in compose
+    assert (tmp_path / "withflower" / "src" / "withflower" / "infrastructure" / "celery" / "app.py").exists()
+
+
+def test_cli_compose_services_kafka_flag(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--modules", "kafka", "--compose-services", "kafka", "--non-interactive"],
+        "withkafkac",
+    )
+    assert result.exit_code == 0, result.output
+    compose = (tmp_path / "withkafkac" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "kafka:" in compose
+    assert "kafkadata:" in compose
+
+
+def test_cli_kafka_without_compose_flag_omits_broker(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--modules", "kafka", "--non-interactive"],
+        "kafkaclient",
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "kafkaclient" / "src" / "kafkaclient" / "infrastructure" / "kafka" / "broker.py").exists()
+    compose = (tmp_path / "kafkaclient" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "kafka:" not in compose
+
+
+def test_cli_messaging_profile_omits_rabbitmq_compose_by_default(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "messaging", "--non-interactive"],
+        "msg_ext",
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "msg_ext" / "src" / "msg_ext" / "infrastructure" / "rabbitmq" / "broker.py").exists()
+    compose = (tmp_path / "msg_ext" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "rabbitmq:" not in compose
+
+
+def test_cli_interactive_compose_checkbox(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "messaging", "none"],
+        texts=["msg_app"],
+        confirms=[False],
+        checkboxes=[["rabbitmq"]],
+    )
+    result = CliRunner().invoke(cli, [])
+    assert result.exit_code == 0, result.output
+    compose = (tmp_path / "msg_app" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "rabbitmq:" in compose
+
+
+def test_cli_interactive_compose_offers_caddy(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "minimal", "none"],
+        texts=["caddy_app"],
+        confirms=[False],
+        checkboxes=[["caddy"]],
+    )
+    result = CliRunner().invoke(cli, [])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "caddy_app" / "docker-compose.prod.yml").exists()
+    assert (tmp_path / "caddy_app" / "Caddyfile").exists()
+
+
+def test_cli_compose_services_caddy_flag(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--compose-services", "caddy", "--non-interactive"],
+        "withcaddy",
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "withcaddy" / "docker-compose.prod.yml").exists()
+
+
+def test_cli_vcs_none_skips_ci(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(tmp_path, core_template, modules_dir, ["--profile", "minimal", "--vcs", "none"], "noc_i")
+    assert result.exit_code == 0, result.output
+    assert not (tmp_path / "noc_i" / ".github").exists()
+    assert not (tmp_path / "noc_i" / ".gitlab-ci.yml").exists()
+    assert "[ci] Skipped (no repository host selected)." in result.output
+    assert (tmp_path / "noc_i" / ".git").is_dir()
 
 
 def test_cli_no_git_flag(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
@@ -236,6 +384,7 @@ def _patch_prompts(
     texts: list | None = None,
     confirms: list | None = None,
     checkboxes: list | None = None,
+    module_checkboxes: list | None = None,
 ) -> None:
     """Script questionary answers without touching a real terminal."""
     from collections import deque
@@ -245,11 +394,16 @@ def _patch_prompts(
         "text": deque(texts or []),
         "confirm": deque(confirms or []),
         "checkbox": deque(checkboxes or []),
+        "modules": deque(module_checkboxes if module_checkboxes is not None else checkboxes or []),
     }
     monkeypatch.setattr("generator.cli._ask_select", lambda *a, **k: queues["select"].popleft())
     monkeypatch.setattr("generator.cli._ask_text", lambda *a, **k: queues["text"].popleft())
     monkeypatch.setattr("generator.cli._ask_confirm", lambda *a, **k: queues["confirm"].popleft())
     monkeypatch.setattr("generator.cli._ask_checkbox", lambda *a, **k: queues["checkbox"].popleft())
+    monkeypatch.setattr(
+        "generator.cli._ask_checkbox_with_back",
+        lambda *a, **k: queues["modules"].popleft(),
+    )
 
 
 def test_project_name_validator() -> None:
@@ -257,6 +411,31 @@ def test_project_name_validator() -> None:
 
     assert _validate_project_name_answer("valid_name") is True
     assert isinstance(_validate_project_name_answer("1bad"), str)
+
+
+def test_compose_service_choices_includes_brokers_when_selected() -> None:
+    from generator.cli import _compose_service_choices
+
+    values = {c.value for c in _compose_service_choices({"rabbitmq"})}
+    assert "rabbitmq" in values
+    assert "caddy" in values
+    assert "kafka" not in values
+    assert "flower" not in values
+
+    values = {c.value for c in _compose_service_choices({"kafka", "celery"})}
+    assert "kafka" in values
+    assert "flower" in values
+    assert "caddy" in values
+    assert "rabbitmq" not in values
+
+    values = {c.value for c in _compose_service_choices({"celery", "flower", "caddy"})}
+    assert "flower" not in values
+    assert "caddy" in values
+    caddy_choice = next(c for c in _compose_service_choices({"celery", "flower", "caddy"}) if c.value == "caddy")
+    assert caddy_choice.checked is True
+
+    bare = {c.value for c in _compose_service_choices(set())}
+    assert bare == {"caddy"}
 
 
 def test_cli_bare_command_opens_interactive_menu(tmp_path: Path, monkeypatch) -> None:
@@ -313,8 +492,8 @@ def test_cli_interactive_items_profile(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     assert (tmp_path / "valid_name" / "src" / "valid_name" / "__main__.py").exists()
-    # items-service profile: no auth-owned security module
-    assert not (tmp_path / "valid_name" / "src" / "valid_name" / "core" / "security.py").exists()
+    # items-service pulls auth for protected CRUD
+    assert (tmp_path / "valid_name" / "src" / "valid_name" / "core" / "security.py").exists()
 
 
 def test_cli_interactive_custom_modules(tmp_path: Path, monkeypatch) -> None:
@@ -324,7 +503,8 @@ def test_cli_interactive_custom_modules(tmp_path: Path, monkeypatch) -> None:
         selects=["create", "custom", "github"],
         texts=["custom_app"],
         confirms=[False],
-        checkboxes=[["redis", "auth"]],
+        checkboxes=[[]],
+        module_checkboxes=[["redis", "auth"]],
     )
 
     result = CliRunner().invoke(cli, [])
@@ -343,7 +523,8 @@ def test_cli_interactive_custom_expands_requirements(tmp_path: Path, monkeypatch
         selects=["create", "custom", "github"],
         texts=["custom_mfa"],
         confirms=[False],
-        checkboxes=[["mfa"]],
+        checkboxes=[[]],
+        module_checkboxes=[["mfa"]],
     )
 
     result = CliRunner().invoke(cli, [])
@@ -356,6 +537,25 @@ def test_cli_interactive_custom_expands_requirements(tmp_path: Path, monkeypatch
     assert (base / "adapters" / "email" / "config.py").exists()
     assert (base / "infrastructure" / "redis" / "client.py").exists()
     assert "[modules] Required dependencies added:" in result.output
+
+
+def test_cli_interactive_custom_modules_backspace_returns_to_profile(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    from generator.cli import _GO_BACK
+
+    _patch_prompts(
+        monkeypatch,
+        selects=["create", "custom", "auth-service", "github"],
+        texts=["backed_app"],
+        confirms=[False],
+        checkboxes=[[]],
+        module_checkboxes=[_GO_BACK],
+    )
+
+    result = CliRunner().invoke(cli, [])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "backed_app" / "src" / "backed_app" / "core" / "security.py").exists()
 
 
 def test_cli_interactive_confirm_overwrite(tmp_path: Path, monkeypatch) -> None:

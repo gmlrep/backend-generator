@@ -4,13 +4,7 @@ from {{project_name}}.infrastructure.redis.client import RedisClient
 
 
 class TokenStore(Protocol):
-    """Port for refresh-token state.
-
-    Refresh tokens are opaque beyond their JWT signature: the store decides
-    whether a token id (``jti``) is still valid, which makes logout/rotation
-    possible. The Redis implementation is used in production; tests use the
-    in-memory one so the suite needs no external services.
-    """
+    """Port for refresh/access token state (rotation + logout denylist)."""
 
     async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None: ...
 
@@ -20,6 +14,12 @@ class TokenStore(Protocol):
 
     async def revoke_all(self, user_id: int) -> None: ...
 
+    async def save_access(self, jti: str, ttl_seconds: int) -> None: ...
+
+    async def is_access_revoked(self, jti: str) -> bool: ...
+
+    async def revoke_access(self, jti: str, ttl_seconds: int) -> None: ...
+
 
 class InMemoryTokenStore:
     """Process-local store used in tests and single-process dev setups."""
@@ -27,6 +27,7 @@ class InMemoryTokenStore:
     def __init__(self) -> None:
         self._tokens: dict[str, int] = {}
         self._by_user: dict[int, set[str]] = {}
+        self._revoked_access: set[str] = set()
 
     async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None:
         self._tokens[jti] = user_id
@@ -45,9 +46,18 @@ class InMemoryTokenStore:
             self._tokens.pop(jti, None)
         self._by_user.pop(user_id, None)
 
+    async def save_access(self, jti: str, ttl_seconds: int) -> None:
+        return None
+
+    async def is_access_revoked(self, jti: str) -> bool:
+        return jti in self._revoked_access
+
+    async def revoke_access(self, jti: str, ttl_seconds: int) -> None:
+        self._revoked_access.add(jti)
+
 
 class RedisTokenStore:
-    """Redis-backed refresh-token store with per-user revocation."""
+    """Redis-backed token store with per-user refresh revocation and access denylist."""
 
     def __init__(self, redis_client: RedisClient) -> None:
         self.redis_client = redis_client
@@ -60,9 +70,14 @@ class RedisTokenStore:
     def _user_key(user_id: int) -> str:
         return f"auth:user_refresh:{user_id}"
 
+    @staticmethod
+    def _access_deny_key(jti: str) -> str:
+        return f"auth:access_deny:{jti}"
+
     async def save_refresh(self, jti: str, user_id: int, ttl_seconds: int) -> None:
         await self.redis_client.set(self._key(jti), str(user_id), ttl=ttl_seconds)
         await self.redis_client.sadd(self._user_key(user_id), jti)
+        await self.redis_client.expire(self._user_key(user_id), ttl_seconds)
 
     async def is_refresh_valid(self, jti: str) -> bool:
         return bool(await self.redis_client.exists(self._key(jti)))
@@ -77,6 +92,15 @@ class RedisTokenStore:
         for jti in await self.redis_client.smembers(self._user_key(user_id)):
             await self.redis_client.delete(self._key(jti))
         await self.redis_client.delete(self._user_key(user_id))
+
+    async def save_access(self, jti: str, ttl_seconds: int) -> None:
+        return None
+
+    async def is_access_revoked(self, jti: str) -> bool:
+        return bool(await self.redis_client.exists(self._access_deny_key(jti)))
+
+    async def revoke_access(self, jti: str, ttl_seconds: int) -> None:
+        await self.redis_client.set(self._access_deny_key(jti), "1", ttl=max(ttl_seconds, 1))
 
 
 def create_token_store(redis_client: RedisClient, use_memory: bool) -> TokenStore:

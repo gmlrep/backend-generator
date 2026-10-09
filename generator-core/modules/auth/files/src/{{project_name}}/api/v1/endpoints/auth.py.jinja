@@ -6,7 +6,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from {{project_name}}.core.container import Container
 from {{project_name}}.core.dependencies import get_current_active_user
-from {{project_name}}.schema.auth import RefreshRequest, SignIn, SignInResponse, SignUp
+from {{project_name}}.core.security import JWTBearer
+from {{project_name}}.schema.auth import MfaSignInRequest, RefreshRequest, SignIn, SignInResponse, SignUp
 from {{project_name}}.schema.user import User
 from {{project_name}}.services.auth import AuthService
 
@@ -20,6 +21,15 @@ async def sign_in(
     service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
 ) -> SignInResponse:
     return await service.sign_in(user_info)
+
+
+@router.post("/sign-in/mfa", response_model=SignInResponse)
+@inject
+async def sign_in_mfa(
+    payload: MfaSignInRequest,
+    service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+) -> SignInResponse:
+    return await service.complete_mfa_sign_in(payload.mfa_token, payload.code)
 
 
 @router.post("/token", response_model=SignInResponse)
@@ -46,8 +56,9 @@ async def refresh(
 async def logout(
     payload: RefreshRequest,
     service: Annotated[AuthService, Depends(Provide[Container.auth_service])],
+    access_token: Annotated[str | None, Depends(JWTBearer(auto_error=False))] = None,
 ) -> None:
-    await service.logout(payload.refresh_token)
+    await service.logout(payload.refresh_token, access_token=access_token)
 
 
 @router.post("/sign-up", response_model=User)

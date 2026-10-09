@@ -2,6 +2,7 @@
 #
 # The API is no longer published on the host; it is reachable only inside the
 # Docker network. Caddy terminates TLS on 80/443 and proxies to the api service.
+# Database and ancillary UIs are not published on the host.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
@@ -11,6 +12,11 @@ services:
     ports: !reset []
     expose:
       - "${API_PORT:-9000}"
+
+  db:
+    ports: !reset []
+    expose:
+      - "5432"
 
   caddy:
     image: caddy:2-alpine

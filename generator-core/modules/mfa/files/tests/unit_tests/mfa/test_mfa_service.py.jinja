@@ -74,13 +74,27 @@ async def test_enable_with_invalid_code() -> None:
         await service.enable(1, "000000")
 
 
-async def test_email_code_roundtrip_is_single_use() -> None:
+async def test_email_code_roundtrip_enables_and_is_single_use() -> None:
     service = _service()
+    await service.setup(_user())
     email_sender = service.email_sender
     await service.send_email_code(_user())
     assert email_sender.sent  # type: ignore[attr-defined]
     code = email_sender.sent[0][2].split()[-1].rstrip(".")  # type: ignore[attr-defined]
 
     assert await service.verify_email_code(1, code) is True
+    assert await service.status(1) is True
     with pytest.raises(AuthError):
         await service.verify_email_code(1, code)
+
+
+async def test_disable_requires_valid_totp() -> None:
+    service = _service()
+    setup = await service.setup(_user())
+    await service.enable(1, pyotp.TOTP(setup.secret, interval=30).now())
+
+    with pytest.raises(AuthError):
+        await service.disable(1, "000000")
+
+    await service.disable(1, pyotp.TOTP(setup.secret, interval=30).now())
+    assert await service.status(1) is False

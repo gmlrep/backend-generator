@@ -21,6 +21,7 @@ password_hash = PasswordHash([BcryptHasher()])
 
 ACCESS_TOKEN_TYPE = "access"
 REFRESH_TOKEN_TYPE = "refresh"
+MFA_TOKEN_TYPE = "mfa"
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api.API_PREFIX}/v1/auth/token")
 basic_scheme = HTTPBasic(auto_error=False)
@@ -47,6 +48,11 @@ def create_access_token(subject: dict[str, Any]) -> tuple[str, datetime, str]:
 def create_refresh_token(subject: dict[str, Any]) -> tuple[str, datetime, str]:
     """Return ``(token, expiration, jti)`` for a long-lived refresh token."""
     return _create_token(subject, REFRESH_TOKEN_TYPE, timedelta(days=settings.security.JWT_REFRESH_EXPIRES_DAYS))
+
+
+def create_mfa_token(subject: dict[str, Any], expires_minutes: int = 5) -> tuple[str, datetime, str]:
+    """Return a short-lived token proving password auth succeeded pending MFA."""
+    return _create_token(subject, MFA_TOKEN_TYPE, timedelta(minutes=expires_minutes))
 
 
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -84,11 +90,17 @@ class JWTBearer(HTTPBearer):
     async def __call__(self, request: Request) -> str | None:  # type: ignore[override]
         credentials: HTTPAuthorizationCredentials | None = await super().__call__(request)
         if not credentials:
-            raise AuthError(detail="Invalid authorization code")
+            if self.auto_error:
+                raise AuthError(detail="Invalid authorization code")
+            return None
         if credentials.scheme != "Bearer":
-            raise AuthError(detail="Invalid authentication scheme")
+            if self.auto_error:
+                raise AuthError(detail="Invalid authentication scheme")
+            return None
         if not self.verify_jwt(credentials.credentials):
-            raise AuthError(detail="Invalid token or expired token")
+            if self.auto_error:
+                raise AuthError(detail="Invalid token or expired token")
+            return None
         return credentials.credentials
 
     def verify_jwt(self, jwt_token: str) -> bool:

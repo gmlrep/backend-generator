@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
@@ -6,8 +6,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from {{project_name}}.core.config import settings
 from {{project_name}}.core.exceptions import AuthError
 from {{project_name}}.core.security import (
+    ACCESS_TOKEN_TYPE,
+    MFA_TOKEN_TYPE,
     REFRESH_TOKEN_TYPE,
     create_access_token,
+    create_mfa_token,
     create_refresh_token,
     decode_jwt,
     get_password_hash,
@@ -23,9 +26,15 @@ from {{project_name}}.util.hash import get_rand_hash
 
 
 class AuthService(BaseService):
-    def __init__(self, user_repository: UserRepository, token_store: TokenStore) -> None:
+    def __init__(
+        self,
+        user_repository: UserRepository,
+        token_store: TokenStore,
+        mfa_service: object | None = None,
+    ) -> None:
         self.user_repository = user_repository
         self.token_store = token_store
+        self.mfa_service = mfa_service
         super().__init__(user_repository)
 
     async def authenticate(self, email: str, password: str) -> User:
@@ -41,9 +50,36 @@ class AuthService(BaseService):
             raise AuthError(detail="Incorrect email or password")
         return User.model_validate(found_user)
 
+    async def _mfa_enabled(self, user_id: int) -> bool:
+        if self.mfa_service is None:
+            return False
+        return bool(await self.mfa_service.status(user_id))  # type: ignore[attr-defined]
+
     async def sign_in(self, sign_in_info: SignIn) -> SignInResponse:
         user = await self.authenticate(sign_in_info.email, sign_in_info.password)
+        if await self._mfa_enabled(user.id):
+            payload = Payload(id=user.id, email=user.email, name=user.name, is_superuser=user.is_superuser)
+            mfa_token, _, _ = create_mfa_token(payload.model_dump())
+            return SignInResponse(mfa_required=True, mfa_token=mfa_token, user_info=user)
         return await self._issue_tokens(user)
+
+    async def complete_mfa_sign_in(self, mfa_token: str, code: str) -> SignInResponse:
+        if self.mfa_service is None:
+            raise AuthError(detail="MFA is not configured")
+        try:
+            payload = decode_jwt(mfa_token, expected_type=MFA_TOKEN_TYPE)
+        except HTTPException as exc:
+            raise AuthError(detail="Invalid MFA token") from exc
+
+        user_id = int(payload["id"])
+        if not await self.mfa_service.status(user_id):  # type: ignore[attr-defined]
+            raise AuthError(detail="MFA is not enabled for this user")
+        await self.mfa_service.verify_totp(user_id, code)  # type: ignore[attr-defined]
+
+        user_model = await self.user_repository.read_by_id(user_id)
+        if user_model is None or not user_model.is_active:
+            raise AuthError(detail="Inactive user")
+        return await self._issue_tokens(User.model_validate(user_model))
 
     async def sign_in_oauth(self, form_data: OAuth2PasswordRequestForm) -> SignInResponse:
         return await self.sign_in(SignIn(email=form_data.username, password=form_data.password))
@@ -69,7 +105,6 @@ class AuthService(BaseService):
         jti = payload.get("jti")
         if not jti or not await self.token_store.is_refresh_valid(jti):
             raise AuthError(detail="Refresh token has been revoked")
-        # Rotate: a refresh token can only be used once.
         await self.token_store.revoke_refresh(jti)
 
         user_model = await self.user_repository.read_by_id(int(payload["id"]))
@@ -77,14 +112,27 @@ class AuthService(BaseService):
             raise AuthError(detail="Inactive user")
         return await self._issue_tokens(User.model_validate(user_model))
 
-    async def logout(self, refresh_token: str) -> None:
+    async def logout(self, refresh_token: str, access_token: str | None = None) -> None:
         try:
             payload = decode_jwt(refresh_token, expected_type=REFRESH_TOKEN_TYPE)
         except HTTPException:
-            return
+            payload = {}
         jti = payload.get("jti")
         if jti:
             await self.token_store.revoke_refresh(jti)
+
+        if access_token:
+            try:
+                access_payload = decode_jwt(access_token, expected_type=ACCESS_TOKEN_TYPE)
+            except HTTPException:
+                return
+            access_jti = access_payload.get("jti")
+            if access_jti:
+                exp = access_payload.get("exp")
+                ttl = 1
+                if isinstance(exp, (int, float)):
+                    ttl = max(int(exp - datetime.now(UTC).timestamp()), 1)
+                await self.token_store.revoke_access(access_jti, ttl)
 
     async def _issue_tokens(self, user: User) -> SignInResponse:
         payload = Payload(id=user.id, email=user.email, name=user.name, is_superuser=user.is_superuser)

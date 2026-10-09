@@ -14,6 +14,9 @@ class Patch:
     target: str
     marker: str
     fragment: str
+    # When true, the patch is only applied if the module id is listed in
+    # ``Engine.generate(..., optional_compose_modules=...)``.
+    optional_compose: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,12 +50,26 @@ def _extract_list(data: dict[str, Any], key: str, manifest_id: str) -> list[Any]
     return value
 
 
-def parse_manifest(path: Path) -> ModuleManifest:
+def parse_manifest(path: Path, *, expected_id: str | None = None) -> ModuleManifest:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ManifestError(f"Manifest {path} root must be a mapping")
 
-    manifest_id = raw.get("id", "<unknown>")
+    raw_id = raw.get("id")
+    if not isinstance(raw_id, str) or not raw_id:
+        raise ManifestError(f"Manifest {path}: 'id' must be a non-empty string")
+    manifest_id = raw_id
+
+    directory_name = path.parent.name
+    if expected_id is not None and manifest_id != expected_id:
+        raise ManifestError(
+            f"Module directory '{expected_id}' declares id '{manifest_id}' (must match)"
+        )
+    if manifest_id != directory_name:
+        raise ManifestError(
+            f"Module '{manifest_id}': manifest id must match directory name '{directory_name}'"
+        )
+
     manifest_version = _extract_str(raw, "manifest_version", manifest_id)
     if manifest_version != "1":
         raise ManifestError(f"Module '{manifest_id}': unsupported manifest_version {manifest_version}")
@@ -89,11 +106,15 @@ def parse_manifest(path: Path) -> ModuleManifest:
     for p in patches_raw:
         if not isinstance(p, dict):
             raise ManifestError(f"Module '{manifest_id}': each patch must be a mapping")
+        optional_compose = p.get("optional_compose", False)
+        if not isinstance(optional_compose, bool):
+            raise ManifestError(f"Module '{manifest_id}': 'optional_compose' must be a boolean")
         patches.append(
             Patch(
                 target=_extract_str(p, "target", manifest_id),
                 marker=_extract_str(p, "marker", manifest_id),
                 fragment=_extract_str(p, "fragment", manifest_id),
+                optional_compose=optional_compose,
             )
         )
 

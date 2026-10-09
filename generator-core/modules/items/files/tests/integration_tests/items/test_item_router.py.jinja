@@ -1,19 +1,38 @@
 from httpx import AsyncClient
 
 
+async def _auth_headers(client: AsyncClient) -> dict[str, str]:
+    await client.post(
+        "/api/v1/auth/sign-up",
+        json={"email": "items@test.io", "password": "password1", "name": "Items"},
+    )
+    sign_in = await client.post(
+        "/api/v1/auth/sign-in",
+        json={"email": "items@test.io", "password": "password1"},
+    )
+    return {"Authorization": f"Bearer {sign_in.json()['access_token']}"}
+
+
 async def test_create_and_list_items(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/items", json={"name": "Widget", "price": 9.99})
+    headers = await _auth_headers(client)
+    response = await client.post("/api/v1/items", json={"name": "Widget", "price": 9.99}, headers=headers)
     assert response.status_code == 200, response.text
     created = response.json()
     assert created["name"] == "Widget"
     assert created["id"] > 0
 
-    response = await client.get("/api/v1/items")
+    response = await client.get("/api/v1/items", headers=headers)
     assert response.status_code == 200, response.text
     assert [item["name"] for item in response.json()] == ["Widget"]
 
 
+async def test_create_item_requires_auth(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/items", json={"name": "Nope", "price": 1.0})
+    assert response.status_code in {401, 403}
+
+
 async def test_create_item_requires_name(client: AsyncClient) -> None:
-    response = await client.post("/api/v1/items", json={"price": 1.0})
+    headers = await _auth_headers(client)
+    response = await client.post("/api/v1/items", json={"price": 1.0}, headers=headers)
 
     assert response.status_code == 422

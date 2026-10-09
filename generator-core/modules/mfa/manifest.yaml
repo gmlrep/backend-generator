@@ -10,11 +10,13 @@ requires:
 conflicts: []
 python_dependencies:
   - "pyotp>=2.9"
+  - "cryptography>=43.0"
 env_example:
   - "MFA_ISSUER=FastAPI Service"
   - "MFA_CODE_TTL_SECONDS=300"
   - "MFA_CODE_LENGTH=6"
   - "MFA_TOTP_INTERVAL=30"
+  - "MFA_ENCRYPTION_KEY="
 patches:
   - target: src/{{project_name}}/api/v1/routes.py
     marker: EXTENSION_ROUTERS

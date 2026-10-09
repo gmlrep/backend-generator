@@ -3,8 +3,9 @@
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+    # Internal scrape network only; do not publish 9090 on the host by default.
+    expose:
+      - "9090"
     volumes:
       - ./src/{{project_name}}/infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheusdata:/prometheus

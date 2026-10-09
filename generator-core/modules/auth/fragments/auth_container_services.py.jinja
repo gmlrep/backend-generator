@@ -3,4 +3,9 @@
     token_store = providers.Singleton(create_token_store, redis_client=redis_client, use_memory=settings.is_test)
 
     user_service = providers.Factory(UserService, user_repository=user_repository)
-    auth_service = providers.Factory(AuthService, user_repository=user_repository, token_store=token_store)
+    auth_service = providers.Factory(
+        AuthService,
+        user_repository=user_repository,
+        token_store=token_store,
+        mfa_service=providers.Object(None),
+    )

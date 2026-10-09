@@ -4,7 +4,8 @@ version: "1.0.0"
 requires:
   core: ">=1.0.0,<2.0.0"
   modules: []
-conflicts: []
+conflicts:
+  - rabbitmq
 python_dependencies:
   - "faststream[kafka]>=0.7"
 env_example:
@@ -34,3 +35,19 @@ patches:
   - target: src/{{project_name}}/core/lifespan.py
     marker: EXTENSION_LIFESPAN_SHUTDOWN
     fragment: fragments/kafka_lifespan_shutdown.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/kafka_compose_env.py.jinja
+    optional_compose: true
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/kafka_compose_service.py.jinja
+    optional_compose: true
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_DEPENDS_ON
+    fragment: fragments/kafka_compose_depends.py.jinja
+    optional_compose: true
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/kafka_compose_volume.py.jinja
+    optional_compose: true

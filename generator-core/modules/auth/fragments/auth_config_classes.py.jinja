@@ -1,6 +1,16 @@
 ROOT_DIR = Path(__file__).resolve().parents[3]
 
 INSECURE_DEFAULT = "change-me-in-production"
+KNOWN_INSECURE_SECRETS = frozenset(
+    {
+        "",
+        INSECURE_DEFAULT,
+        "change-me-in-production-min-32-chars",
+        "changeme",
+        "secret",
+        "jwt-secret",
+    }
+)
 
 
 class SecuritySettings(BaseSettings):
@@ -16,6 +26,8 @@ class SecuritySettings(BaseSettings):
     JWT_ALGORITHM: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
     JWT_EXPIRES_MINUTES: int = Field(default=30, validation_alias="JWT_EXPIRES_MINUTES")
     JWT_REFRESH_EXPIRES_DAYS: int = Field(default=7, validation_alias="JWT_REFRESH_EXPIRES_DAYS")
+    FIRST_SUPERUSER_EMAIL: str | None = Field(default=None, validation_alias="FIRST_SUPERUSER_EMAIL")
+    FIRST_SUPERUSER_PASSWORD: str | None = Field(default=None, validation_alias="FIRST_SUPERUSER_PASSWORD")
 
     JWT_PRIVATE_KEY_PATH: Path = Field(
         default=ROOT_DIR / "certs" / "jwt-private.pem", validation_alias="JWT_PRIVATE_KEY_PATH"
@@ -30,7 +42,9 @@ class SecuritySettings(BaseSettings):
 
     @property
     def is_secure(self) -> bool:
-        if self.JWT_SECRET in ("", INSECURE_DEFAULT):
+        if self.JWT_SECRET in KNOWN_INSECURE_SECRETS:
+            return False
+        if self.JWT_SECRET.lower().startswith("change-me"):
             return False
         if self.uses_asymmetric_keys:
             return self.JWT_PRIVATE_KEY_PATH.is_file() and self.JWT_PUBLIC_KEY_PATH.is_file()

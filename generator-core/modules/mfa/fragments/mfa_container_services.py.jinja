@@ -7,3 +7,10 @@
         email_sender=email_sender,
         code_store=mfa_code_store,
     )
+    # Re-bind auth so sign-in can challenge when the user has opted into MFA.
+    auth_service = providers.Factory(
+        AuthService,
+        user_repository=user_repository,
+        token_store=token_store,
+        mfa_service=mfa_service,
+    )

@@ -1,0 +1,48 @@
+from fastapi import FastAPI
+from loguru import logger
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.security import get_password_hash
+from {{project_name}}.model.user import User as UserModel
+from {{project_name}}.schema.user import FindUser
+from {{project_name}}.util.hash import get_rand_hash
+
+
+async def ensure_first_superuser(app: FastAPI) -> None:
+    """Create the first superuser when credentials are provided via env."""
+    email = settings.security.FIRST_SUPERUSER_EMAIL
+    password = settings.security.FIRST_SUPERUSER_PASSWORD
+    if not email or not password:
+        return
+
+    container = app.state.container
+    user_repository = container.user_repository()
+    existing = (await user_repository.read_by_options(FindUser(is_superuser__eq=True)))["founds"]
+    if existing:
+        return
+
+    by_email = (await user_repository.read_by_options(FindUser(email__eq=email)))["founds"]
+    if by_email:
+        user = by_email[0]
+        await user_repository.update_by_id(
+            user.id,
+            {
+                "is_superuser": True,
+                "is_active": True,
+                "password": await get_password_hash(password),
+            },
+        )
+        logger.info("Promoted existing user {} to superuser", email)
+        return
+
+    await user_repository.create(
+        UserModel(
+            email=email,
+            name="Superuser",
+            is_active=True,
+            is_superuser=True,
+            user_token=get_rand_hash(),
+            password=await get_password_hash(password),
+        )
+    )
+    logger.info("Created first superuser {}", email)

@@ -23,8 +23,10 @@ env_example:
 """
 
 
-def _write(tmp_path: Path, content: str) -> Path:
-    path = tmp_path / "manifest.yaml"
+def _write(tmp_path: Path, content: str, *, directory: str = "auth") -> Path:
+    mod = tmp_path / directory
+    mod.mkdir(parents=True, exist_ok=True)
+    path = mod / "manifest.yaml"
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -60,3 +62,8 @@ def test_rejects_invalid_patch(tmp_path: Path) -> None:
     bad = VALID.replace("    marker: EXTENSION_ROUTERS\n", "")
     with pytest.raises(ManifestError, match="marker"):
         parse_manifest(_write(tmp_path, bad))
+
+
+def test_rejects_id_mismatch_with_directory(tmp_path: Path) -> None:
+    with pytest.raises(ManifestError, match="must match directory name"):
+        parse_manifest(_write(tmp_path, VALID, directory="other"))

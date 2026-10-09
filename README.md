@@ -61,8 +61,8 @@ stable core template plus declarative module manifests.
   skipped early with a warning and generation still succeeds.
 - **CI for GitHub or GitLab.** The repository host (asked interactively or set
   with `--vcs`) determines the main branch and generates CI only for that host.
-  The pipeline runs `ruff check`, `ruff format --check`, `mypy`, `pytest` and a
-  docker build.
+  Choose `None` / `--vcs none` to skip CI. The pipeline runs `ruff check`,
+  `ruff format --check`, `mypy`, `pytest` and a docker build.
 
 ## CLI
 
@@ -72,9 +72,12 @@ uv run bsg-generator
 #   ? What would you like to do?  create
 #   ? Project name                my_service
 #   ? Select a service to generate: auth-service  redis, auth
-#   ? Which repository host will you use?  github / gitlab
-#   ? Include optional modules ...  (checkbox)
+#   ? Which repository host will you use?  github / gitlab / None
+#   ? Add Docker Compose services ...  (checkbox: rabbitmq / kafka / flower / caddy;
+#       rabbitmq/kafka modules alone only add the Python client — check here to
+#       also run the broker in docker-compose)
 #   ? Create a virtual environment and install dependencies?  (y/N)
+#   On the custom-modules checkbox, Backspace returns to the service list.
 #
 # Pick "custom" in the service list to choose any combination of modules
 # from a checkbox list (required dependencies are added automatically):
@@ -134,17 +137,18 @@ tests/                # positive and negative scenarios
 ```
 redis
  ├── celery ──► push-notifications
- ├── rate-limit
- ├── auth ──► mfa (also needs email)
+ ├── rate-limit ◄── auth (auth also requires rate-limit)
+ ├── auth ──► mfa (also needs email; MFA is per-user opt-in)
  └── logging-elasticsearch
 email
  ├── mfa
  └── push-notifications
 auth ──► users-profiles ──► roles-permissions
+items ──► auth
 openai, s3            (standalone)
 celery ──► flower, celery-beat
 prometheus, caddy     (standalone)
-rabbitmq, kafka       (standalone message queues via a shared MessageBroker facade)
+rabbitmq XOR kafka    (mutual exclusion; shared MessageBroker facade)
 ```
 
 ## Production (Caddy + TLS)
@@ -166,6 +170,24 @@ internal CA.
 Adapters are defined as `typing.Protocol` ports and bound to concrete
 implementations in the DI container, so tests inject fakes without touching
 business logic (see `docs/contracts.md`).
+
+## Versioning
+
+While the package major version is `0` (beta), versions follow
+`0.MINOR.PATCH`: **minor** for features and hardening, **patch** for
+hotfixes. The installed tool version is independent of
+`generator-core/VERSION` (the core-template compatibility contract).
+
+## Install and run from any directory
+
+```bash
+uv tool install .
+bsg-generator create --name my_service --profile auth-service --non-interactive
+```
+
+The CLI locates packaged `generator-core` next to the `generator` package
+(or the repo root in editable installs), so it works outside the source tree.
+Override with `BSG_CORE_TEMPLATE` / `BSG_MODULES_DIR` if needed.
 
 ## Development
 
@@ -202,8 +224,8 @@ pytest
    `ruff format` and `ruff check`, logging `[ruff] PASSED` / `[ruff] FAILED`.
 5. **Optional:** create `.venv` and install dependencies (`--venv`), logging
    `[venv] ...` progress and the final result.
-6. **CI** (always): generate the pipeline for the selected `--vcs` (GitHub or
-   GitLab).
+6. **CI:** generate the pipeline for the selected `--vcs` (GitHub or GitLab),
+   or skip when `--vcs none`.
 7. **Git** (default on): initialize a repository on the provider's main branch
    and make an initial commit; `--no-git` skips it.
 

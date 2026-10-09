@@ -1,6 +1,9 @@
+import base64
+import hashlib
 import secrets
 
 import pyotp
+from cryptography.fernet import Fernet, InvalidToken
 
 from {{project_name}}.adapters.email.interface import EmailSender
 from {{project_name}}.core.config import settings
@@ -11,6 +14,23 @@ from {{project_name}}.schema.mfa import MfaSetupResponse
 from {{project_name}}.schema.user import User
 from {{project_name}}.services.base import BaseService
 from {{project_name}}.services.mfa_code_store import MfaCodeStore
+
+
+def _fernet() -> Fernet:
+    raw = settings.mfa.ENCRYPTION_KEY or settings.security.JWT_SECRET
+    digest = hashlib.sha256(raw.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def _encrypt_secret(secret: str) -> str:
+    return _fernet().encrypt(secret.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_secret(payload: str) -> str:
+    try:
+        return _fernet().decrypt(payload.encode("utf-8")).decode("utf-8")
+    except InvalidToken as exc:
+        raise AuthError("Invalid MFA credential") from exc
 
 
 class MfaService(BaseService):
@@ -26,12 +46,13 @@ class MfaService(BaseService):
 
     async def setup(self, user: User) -> MfaSetupResponse:
         secret = pyotp.random_base32()
+        encrypted = _encrypt_secret(secret)
         credential = await self.mfa_repository.read_by_user_id(user.id)
         if credential is None:
-            credential = MfaCredential(user_id=user.id, secret=secret, is_enabled=False)
+            credential = MfaCredential(user_id=user.id, secret=encrypted, is_enabled=False)
             await self.mfa_repository.create(credential)
         else:
-            await self.mfa_repository.update_by_id(credential.id, {"secret": secret, "is_enabled": False})
+            await self.mfa_repository.update_by_id(credential.id, {"secret": encrypted, "is_enabled": False})
 
         totp = pyotp.TOTP(secret, interval=settings.mfa.TOTP_INTERVAL)
         return MfaSetupResponse(
@@ -43,15 +64,28 @@ class MfaService(BaseService):
         credential = await self.mfa_repository.read_by_user_id(user_id)
         if credential is None:
             raise NotFoundError("MFA is not set up")
-        if not self._verify_totp(credential.secret, code):
+        plain = _decrypt_secret(credential.secret)
+        if not self._verify_totp(plain, code):
             raise AuthError("Invalid MFA code")
         await self.mfa_repository.update_by_id(credential.id, {"is_enabled": True})
         return True
 
-    async def disable(self, user_id: int) -> None:
+    async def disable(self, user_id: int, code: str) -> None:
         credential = await self.mfa_repository.read_by_user_id(user_id)
-        if credential is not None:
-            await self.mfa_repository.update_by_id(credential.id, {"is_enabled": False})
+        if credential is None:
+            raise NotFoundError("MFA is not set up")
+        plain = _decrypt_secret(credential.secret)
+        if not self._verify_totp(plain, code):
+            raise AuthError("Invalid MFA code")
+        await self.mfa_repository.update_by_id(credential.id, {"is_enabled": False})
+
+    async def verify_totp(self, user_id: int, code: str) -> None:
+        credential = await self.mfa_repository.read_by_user_id(user_id)
+        if credential is None or not credential.is_enabled:
+            raise AuthError("MFA is not enabled")
+        plain = _decrypt_secret(credential.secret)
+        if not self._verify_totp(plain, code):
+            raise AuthError("Invalid MFA code")
 
     async def send_email_code(self, user: User) -> None:
         code = f"{secrets.randbelow(10 ** settings.mfa.CODE_LENGTH):0{settings.mfa.CODE_LENGTH}d}"
@@ -64,9 +98,13 @@ class MfaService(BaseService):
 
     async def verify_email_code(self, user_id: int, code: str) -> bool:
         stored = await self.code_store.get_code(user_id)
-        if stored is None or stored != code:
+        if stored is None or not secrets.compare_digest(stored, code):
             raise AuthError("Invalid verification code")
         await self.code_store.delete_code(user_id)
+        credential = await self.mfa_repository.read_by_user_id(user_id)
+        if credential is None:
+            raise NotFoundError("MFA is not set up")
+        await self.mfa_repository.update_by_id(credential.id, {"is_enabled": True})
         return True
 
     def _verify_totp(self, secret: str, code: str) -> bool:

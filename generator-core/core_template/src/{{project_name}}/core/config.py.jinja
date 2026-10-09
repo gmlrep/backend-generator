@@ -150,6 +150,15 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.is_production and self.database.echo:
             problems.append("DB_ECHO should be disabled in production.")
+        if self.is_production and "*" in self.cors.ALLOWED_ORIGINS:
+            problems.append("CORS_ALLOWED_ORIGINS must not include '*' in production.")
+        if self.is_production:
+            if self.api.DOCS_URL not in (None, ""):
+                problems.append("DOCS_URL must be empty/disabled in production (set DOCS_URL=).")
+            if self.api.OPENAPI_URL not in (None, ""):
+                problems.append("OPENAPI_URL must be empty/disabled in production (set OPENAPI_URL=).")
+            if self.api.REDOC_URL not in (None, ""):
+                problems.append("REDOC_URL must be empty/disabled in production (set REDOC_URL=).")
         # EXTENSION_VALIDATION
         if problems:
             raise ValueError("Configuration errors:\n- " + "\n- ".join(problems))

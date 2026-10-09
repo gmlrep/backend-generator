@@ -11,14 +11,18 @@ from {{project_name}}.core.security import ACCESS_TOKEN_TYPE, JWTBearer, basic_s
 from {{project_name}}.schema.auth import Payload
 from {{project_name}}.schema.user import User
 from {{project_name}}.services.auth import AuthService
+from {{project_name}}.services.token_store import TokenStore
 from {{project_name}}.services.user import UserService
 
 
-async def _resolve_user(token: str, service: UserService) -> User | None:
+async def _resolve_user(token: str, service: UserService, token_store: TokenStore) -> User | None:
     try:
         payload = decode_jwt(token, expected_type=ACCESS_TOKEN_TYPE)
         token_data = Payload(**payload)
     except (HTTPException, ValidationError):
+        return None
+    jti = payload.get("jti")
+    if jti and await token_store.is_access_revoked(jti):
         return None
     return await service.get_by_id(token_data.id)
 
@@ -27,8 +31,9 @@ async def _resolve_user(token: str, service: UserService) -> User | None:
 async def get_current_user(
     token: Annotated[str, Depends(JWTBearer())],
     service: Annotated[UserService, Depends(Provide[Container.user_service])],
+    token_store: Annotated[TokenStore, Depends(Provide[Container.token_store])],
 ) -> User:
-    current_user = await _resolve_user(token, service)
+    current_user = await _resolve_user(token, service, token_store)
     if not current_user:
         raise AuthError(detail="Could not validate credentials")
     return current_user
@@ -42,10 +47,13 @@ async def get_current_active_user(current_user: Annotated[User, Depends(get_curr
 
 @inject
 async def get_current_user_with_no_exception(
-    token: Annotated[str, Depends(JWTBearer())],
+    token: Annotated[str | None, Depends(JWTBearer(auto_error=False))],
     service: Annotated[UserService, Depends(Provide[Container.user_service])],
+    token_store: Annotated[TokenStore, Depends(Provide[Container.token_store])],
 ) -> User | None:
-    return await _resolve_user(token, service)
+    if not token:
+        return None
+    return await _resolve_user(token, service, token_store)
 
 
 async def get_current_super_user(current_user: Annotated[User, Depends(get_current_user)]) -> User:

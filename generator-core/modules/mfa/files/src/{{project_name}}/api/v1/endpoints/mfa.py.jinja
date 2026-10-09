@@ -44,10 +44,11 @@ async def enable(
 @router.post("/disable", response_model=MfaStatusResponse)
 @inject
 async def disable(
+    payload: MfaCodeRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[MfaService, Depends(Provide[Container.mfa_service])],
 ) -> MfaStatusResponse:
-    await service.disable(current_user.id)
+    await service.disable(current_user.id, payload.code)
     return MfaStatusResponse(is_enabled=False)
 
 

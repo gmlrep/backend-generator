@@ -74,7 +74,8 @@ def test_generate_auth_service(tmp_path: Path, core_template: Path, modules_dir:
     assert "security: SecuritySettings" in config
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
-    assert "JWT_SECRET" in compose
+    # JWT secrets live in .env only; Compose must not hardcode them.
+    assert "JWT_SECRET=" not in compose
     # Compose must pull variables from the generated .env file.
     assert "env_file:" in compose
     assert "- .env" in compose
@@ -173,6 +174,10 @@ def test_generated_dockerfile(tmp_path: Path, core_template: Path, modules_dir: 
     assert "./bash" not in dockerfile
     assert "app.sh" not in dockerfile
     assert "FAST_API_PORT" not in dockerfile
+    # Shebang scripts must use LF so Linux containers work when generated on Windows.
+    entrypoint = (target / "docker-entrypoint.sh").read_bytes()
+    assert b"\r" not in entrypoint
+    assert entrypoint.startswith(b"#!/usr/bin/env sh\n")
 
 
 def test_generated_project_runs_migrations_on_startup(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -210,25 +215,19 @@ def test_core_health_test_and_router_annotation(tmp_path: Path, core_template: P
     assert "router_list: list[APIRouter] = []" in routes
 
 
-def test_items_profile_has_no_auth_security(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+def test_items_profile_pulls_auth(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "items_only"
     _engine(core_template, modules_dir).generate(target, "items_only", ["items"], core_version="1.0.0")
 
-    assert not (target / "src/items_only/core/security.py").exists()
-    assert not (target / "src/items_only/core/security_config.py").exists()
+    # items requires auth (and transitive redis / rate-limit).
+    assert (target / "src/items_only/core/security.py").exists()
     config = (target / "src/items_only/core/config.py").read_text(encoding="utf-8")
-    assert "SecuritySettings" not in config
-    assert "jwt" not in config.lower()
-
-    compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
-    assert "JWT_SECRET" not in compose
+    assert "SecuritySettings" in config
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
-    assert "pyjwt" not in pyproject
-    assert "pwdlib" not in pyproject
+    assert "pyjwt" in pyproject
 
-    # auth tests must not leak into an items-only project
-    assert not (target / "tests/unit_tests/auth").exists()
+    assert (target / "tests/unit_tests/auth").exists()
     assert (target / "tests/unit_tests/items/test_item_service.py").exists()
     assert (target / "tests/integration_tests/items/test_item_router.py").exists()
 
@@ -275,7 +274,7 @@ def test_no_unresolved_jinja_in_output(tmp_path: Path, core_template: Path, modu
 
 
 def test_unknown_module_manifest(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
-    with pytest.raises(GenerationError, match="does not have manifest.yaml"):
+    with pytest.raises(GenerationError, match="Unknown module 'does-not-exist'"):
         _engine(core_template, modules_dir).generate(tmp_path / "x", "x", ["does-not-exist"])
 
 
@@ -308,8 +307,50 @@ def test_generate_rejects_missing_required_module(tmp_path: Path, core_template:
     modules = tmp_path / "modules"
     _make_module(modules, "beta", {}, requires={"core": ">=1.0.0", "modules": ["alpha"]})
 
-    with pytest.raises(GenerationError, match="requires 'alpha'"):
+    with pytest.raises(GenerationError, match="Unknown module 'alpha'"):
         _engine(core_template, modules).generate(tmp_path / "out", "demo", ["beta"])
+
+
+def test_generate_rejects_kafka_and_rabbitmq_together(
+    tmp_path: Path, core_template: Path, modules_dir: Path
+) -> None:
+    with pytest.raises(GenerationError, match="conflicts with"):
+        _engine(core_template, modules_dir).generate(
+            tmp_path / "brokers", "brokers", ["rabbitmq", "kafka"], core_version="1.0.0"
+        )
+
+
+def test_overwrite_preserves_backup_on_swap(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "swapme"
+    engine = _engine(core_template, modules_dir)
+    engine.generate(target, "swapme", [], core_version="1.0.0")
+    marker = target / "KEEP.txt"
+    marker.write_text("old", encoding="utf-8")
+    engine.generate(target, "swapme", [], core_version="1.0.0", allow_overwrite=True)
+    assert (target / "src/swapme/__main__.py").exists()
+    assert not marker.exists()
+
+
+def test_rejects_module_path_traversal(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    with pytest.raises(GenerationError, match="Invalid module id"):
+        _engine(core_template, modules_dir).generate(
+            tmp_path / "evil", "evil", ["../etc"], core_version="1.0.0"
+        )
+
+
+def test_rejects_target_file_without_overwrite(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "as_file"
+    target.write_text("nope", encoding="utf-8")
+    with pytest.raises(GenerationError, match="is a file"):
+        _engine(core_template, modules_dir).generate(target, "as_file", [], core_version="1.0.0")
+
+
+def test_rejects_conflicting_dependency_pins(tmp_path: Path, core_template: Path) -> None:
+    modules = tmp_path / "modules"
+    _make_module(modules, "alpha", {}, python_dependencies=["redis>=5"])
+    _make_module(modules, "beta", {}, python_dependencies=["redis>=6"])
+    with pytest.raises(GenerationError, match="Conflicting dependency"):
+        _engine(core_template, modules).generate(tmp_path / "out", "demo", ["alpha", "beta"])
 
 
 def test_generate_rejects_circular_dependencies(tmp_path: Path, core_template: Path) -> None:
@@ -476,7 +517,13 @@ def test_generate_redis_module(tmp_path: Path, core_template: Path, modules_dir:
 
 def test_generate_rabbitmq_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "withrabbit"
-    _engine(core_template, modules_dir).generate(target, "withrabbit", ["rabbitmq"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(
+        target,
+        "withrabbit",
+        ["rabbitmq"],
+        core_version="1.0.0",
+        optional_compose_modules=set(),
+    )
 
     assert (target / "src/withrabbit/infrastructure/rabbitmq/broker.py").exists()
     assert (target / "src/withrabbit/infrastructure/rabbitmq/config.py").exists()
@@ -494,10 +541,9 @@ def test_generate_rabbitmq_module(tmp_path: Path, core_template: Path, modules_d
     assert "container.rabbitmq_broker()" in lifespan
     assert "await rabbitmq_broker.stop()" in lifespan
 
+    # Module alone wires the client; Compose broker is opt-in.
     compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert compose["services"]["rabbitmq"]["image"] == "rabbitmq:4-management-alpine"
-    assert "rabbitmq" in compose["services"]["api"]["depends_on"]
-    assert "rabbitmqdata" in compose["volumes"]
+    assert "rabbitmq" not in compose["services"]
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert "faststream[rabbit]" in pyproject
@@ -506,9 +552,32 @@ def test_generate_rabbitmq_module(tmp_path: Path, core_template: Path, modules_d
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
+def test_generate_rabbitmq_with_compose_service(
+    tmp_path: Path, core_template: Path, modules_dir: Path
+) -> None:
+    target = tmp_path / "withrabbitc"
+    _engine(core_template, modules_dir).generate(
+        target,
+        "withrabbitc",
+        ["rabbitmq"],
+        core_version="1.0.0",
+        optional_compose_modules={"rabbitmq"},
+    )
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["rabbitmq"]["image"] == "rabbitmq:4-management-alpine"
+    assert "rabbitmq" in compose["services"]["api"]["depends_on"]
+    assert "rabbitmqdata" in compose["volumes"]
+
+
 def test_generate_kafka_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     target = tmp_path / "withkafka"
-    _engine(core_template, modules_dir).generate(target, "withkafka", ["kafka"], core_version="1.0.0")
+    _engine(core_template, modules_dir).generate(
+        target,
+        "withkafka",
+        ["kafka"],
+        core_version="1.0.0",
+        optional_compose_modules=set(),
+    )
 
     assert (target / "src/withkafka/infrastructure/kafka/broker.py").exists()
     assert (target / "src/withkafka/infrastructure/kafka/config.py").exists()
@@ -526,16 +595,31 @@ def test_generate_kafka_module(tmp_path: Path, core_template: Path, modules_dir:
     assert "container.kafka_broker()" in lifespan
     assert "await kafka_broker.stop()" in lifespan
 
-    # Kafka is an external/managed broker: no compose service is generated.
     compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
     assert "kafka" not in compose["services"]
-    assert "kafka" not in compose["services"]["api"]["depends_on"]
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert "faststream[kafka]" in pyproject
 
     for py_file in target.rglob("*.py"):
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
+
+
+def test_generate_kafka_with_compose_service(
+    tmp_path: Path, core_template: Path, modules_dir: Path
+) -> None:
+    target = tmp_path / "withkafkac"
+    _engine(core_template, modules_dir).generate(
+        target,
+        "withkafkac",
+        ["kafka"],
+        core_version="1.0.0",
+        optional_compose_modules={"kafka"},
+    )
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "kafka" in compose["services"]
+    assert "kafka" in compose["services"]["api"]["depends_on"]
+    assert "kafkadata" in compose["volumes"]
 
 
 def test_generate_celery_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -564,9 +648,11 @@ def test_generate_celery_module(tmp_path: Path, core_template: Path, modules_dir
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
-def test_celery_requires_redis(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
-    with pytest.raises(GenerationError, match="requires 'redis'"):
-        _engine(core_template, modules_dir).generate(tmp_path / "x", "x", ["celery"], core_version="1.0.0")
+def test_celery_auto_expands_redis(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "celery_only"
+    _engine(core_template, modules_dir).generate(target, "celery_only", ["celery"], core_version="1.0.0")
+    assert (target / "src/celery_only/infrastructure/redis/client.py").exists()
+    assert (target / "src/celery_only/infrastructure/celery/app.py").exists()
 
 
 def test_generate_rate_limit_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -624,11 +710,12 @@ def test_generate_mfa_module(tmp_path: Path, core_template: Path, modules_dir: P
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")
 
 
-def test_mfa_requires_auth_and_email(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
-    with pytest.raises(GenerationError, match="requires 'auth'"):
-        _engine(core_template, modules_dir).generate(
-            tmp_path / "x", "x", ["redis", "email", "mfa"], core_version="1.0.0"
-        )
+def test_mfa_auto_expands_auth_and_email(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "mfa_only"
+    _engine(core_template, modules_dir).generate(target, "mfa_only", ["mfa"], core_version="1.0.0")
+    assert (target / "src/mfa_only/core/security.py").exists()
+    assert (target / "src/mfa_only/adapters/email/config.py").exists()
+    assert (target / "src/mfa_only/model/mfa.py").exists()
 
 
 def test_generate_logging_elasticsearch_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -817,7 +904,9 @@ def test_generate_celery_beat_module(tmp_path: Path, core_template: Path, module
     assert "from withbeat.tasks.beat import heartbeat" in tasks_init
 
     compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert "beat" in compose["services"]
+    beat_cmd = compose["services"]["beat"]["command"]
+    assert "--schedule=/tmp/celerybeat-schedule" in beat_cmd
+    assert "--pidfile=/tmp/celerybeat.pid" in beat_cmd
 
     for py_file in target.rglob("*.py"):
         compile(py_file.read_text(encoding="utf-8"), str(py_file), "exec")

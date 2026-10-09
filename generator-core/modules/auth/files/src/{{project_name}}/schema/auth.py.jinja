@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from pydantic import EmailStr, Field
+
 from {{project_name}}.schema.base import BaseSchema
 from {{project_name}}.schema.user import User
 
@@ -12,23 +14,30 @@ class Payload(BaseSchema):
 
 
 class SignIn(BaseSchema):
-    email: str
+    email: EmailStr
     password: str
 
 
 class SignUp(BaseSchema):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(min_length=8)
     name: str | None = None
 
 
 class SignInResponse(BaseSchema):
-    access_token: str
-    refresh_token: str
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
-    expiration: datetime
-    user_info: User
+    expiration: datetime | None = None
+    user_info: User | None = None
+    mfa_required: bool = False
+    mfa_token: str | None = None
 
 
 class RefreshRequest(BaseSchema):
     refresh_token: str
+
+
+class MfaSignInRequest(BaseSchema):
+    mfa_token: str
+    code: str

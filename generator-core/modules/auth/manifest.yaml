@@ -5,16 +5,23 @@ requires:
   core: ">=1.0.0,<2.0.0"
   modules:
     - redis
+    - rate-limit
 conflicts: []
 python_dependencies:
   - "pwdlib[bcrypt]>=0.3"
   - "pyjwt>=2.13"
   - "python-multipart>=0.0.32"
+  - "email-validator>=2.0"
 env_example:
   - "JWT_SECRET=change-me-in-production-min-32-chars"
   - "JWT_ALGORITHM=HS256"
   - "JWT_EXPIRES_MINUTES=30"
   - "JWT_REFRESH_EXPIRES_DAYS=7"
+  - "FIRST_SUPERUSER_EMAIL="
+  - "FIRST_SUPERUSER_PASSWORD="
+  - "DOCS_URL=/docs"
+  - "OPENAPI_URL=/openapi.json"
+  - "REDOC_URL=/redoc"
 patches:
   - target: src/{{project_name}}/api/v1/routes.py
     marker: EXTENSION_ROUTERS
@@ -46,6 +53,9 @@ patches:
   - target: src/{{project_name}}/core/dependencies.py
     marker: EXTENSION_DEPENDENCIES
     fragment: fragments/auth_dependencies.py.jinja
-  - target: docker-compose.yml
-    marker: EXTENSION_COMPOSE_ENV
-    fragment: fragments/auth_compose_env.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_IMPORTS
+    fragment: fragments/auth_lifespan_imports.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/auth_lifespan_startup.py.jinja

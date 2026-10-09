@@ -4,15 +4,16 @@ version: "1.0.0"
 requires:
   core: ">=1.0.0,<2.0.0"
   modules: []
-conflicts: []
+conflicts:
+  - kafka
 python_dependencies:
   - "faststream[rabbit]>=0.7"
 env_example:
   - "RABBITMQ_URL="
   - "RABBITMQ_HOST=localhost"
   - "RABBITMQ_PORT=5672"
-  - "RABBITMQ_USER=guest"
-  - "RABBITMQ_PASSWORD=guest"
+  - "RABBITMQ_USER=rabbit"
+  - "RABBITMQ_PASSWORD=change-me-rabbit"
   - "RABBITMQ_VHOST=/"
 patches:
   - target: src/{{project_name}}/core/config.py
@@ -36,12 +37,16 @@ patches:
   - target: docker-compose.yml
     marker: EXTENSION_COMPOSE_ENV
     fragment: fragments/rabbitmq_compose_env.py.jinja
+    optional_compose: true
   - target: docker-compose.yml
     marker: EXTENSION_COMPOSE_SERVICES
     fragment: fragments/rabbitmq_compose_service.py.jinja
+    optional_compose: true
   - target: docker-compose.yml
     marker: EXTENSION_COMPOSE_DEPENDS_ON
     fragment: fragments/rabbitmq_compose_depends.py.jinja
+    optional_compose: true
   - target: docker-compose.yml
     marker: EXTENSION_COMPOSE_VOLUMES
     fragment: fragments/rabbitmq_compose_volume.py.jinja
+    optional_compose: true

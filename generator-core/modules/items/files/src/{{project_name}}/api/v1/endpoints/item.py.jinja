@@ -4,7 +4,9 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends
 
 from {{project_name}}.core.container import Container
+from {{project_name}}.core.dependencies import get_current_active_user
 from {{project_name}}.schema.item import ItemCreate, ItemRead
+from {{project_name}}.schema.user import User
 from {{project_name}}.services.item import ItemService
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -14,14 +16,18 @@ router = APIRouter(prefix="/items", tags=["items"])
 @inject
 async def create_item(
     payload: ItemCreate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[ItemService, Depends(Provide[Container.item_service])],
 ) -> ItemRead:
+    _ = current_user
     return await service.create(payload)
 
 
 @router.get("", response_model=list[ItemRead])
 @inject
 async def list_items(
+    current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[ItemService, Depends(Provide[Container.item_service])],
 ) -> list[ItemRead]:
+    _ = current_user
     return await service.list_all()

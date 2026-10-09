@@ -40,7 +40,8 @@ module owns them and injects them into the core extension points:
 | `create_access_token`, `decode_jwt`, `JWTBearer` | `auth` → `core/security.py` | module `files/` (no marker needed) |
 | `get_password_hash`, `verify_password` | `auth` → `core/security.py` | module `files/` (no marker needed) |
 | `pyjwt`, `pwdlib[bcrypt]` dependencies | `auth` manifest `python_dependencies` | `pyproject.toml` merge |
-| `.env` / `.env.example` / docker-compose JWT variables | `auth` manifest `env_example` + fragment | `EXTENSION_COMPOSE_ENV` |
+| `.env` / `.env.example` JWT variables | `auth` manifest `env_example` (Compose reads `.env`; secrets are not hardcoded) | post-step env write |
+| MFA challenge on sign-in (when user opted in) | `mfa` rebinds `auth_service` with `mfa_service` | `EXTENSION_CONTAINER_SERVICES` |
 | unit/integration tests | `auth` → `tests/unit_tests/auth/`, `tests/integration_tests/auth/` | module `files/` |
 
 ## Test contribution

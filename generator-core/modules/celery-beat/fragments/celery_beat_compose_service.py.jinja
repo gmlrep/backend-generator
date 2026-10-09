@@ -1,6 +1,15 @@
   beat:
     build: .
-    command: ["celery", "-A", "{{project_name}}.infrastructure.celery.app:celery_app", "beat", "-l", "info"]
+    # Schedule/pid under /tmp: image runs as non-root and /app is not writable.
+    command:
+      - "celery"
+      - "-A"
+      - "{{project_name}}.infrastructure.celery.app:celery_app"
+      - "beat"
+      - "-l"
+      - "info"
+      - "--schedule=/tmp/celerybeat-schedule"
+      - "--pidfile=/tmp/celerybeat.pid"
     env_file:
       - .env
     environment:

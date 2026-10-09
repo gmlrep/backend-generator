@@ -6,7 +6,7 @@
       - "{{project_name}}.infrastructure.celery.app:celery_app"
       - "flower"
       - "--port=5555"
-      - "--basic_auth=${FLOWER_BASIC_AUTH:-admin:change-me}"
+      - "--basic_auth=${FLOWER_BASIC_AUTH:?Set FLOWER_BASIC_AUTH in .env}"
     env_file:
       - .env
     environment:

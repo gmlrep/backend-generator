@@ -2,12 +2,18 @@
 
 Behaviour:
 
-* if the database already has application tables, nothing is done;
+* if the database already has application tables and an Alembic version row,
+  nothing is done;
+* if tables exist but Alembic was never stamped (legacy ``create_all`` path),
+  ``alembic stamp head`` is applied when revisions exist;
 * if it is empty and the project ships Alembic revisions, ``alembic upgrade
   head`` is applied;
 * if it is empty and there are no revisions yet, the schema is created
   directly from the SQLAlchemy models so a freshly generated project works
   out of the box.
+
+Only one API replica should set ``RUN_MIGRATIONS=true``; workers must set
+``RUN_MIGRATIONS=false``.
 """
 
 from __future__ import annotations
@@ -70,14 +76,29 @@ async def _create_schema_from_models() -> None:
 
 
 def main() -> None:
-    tables = [name for name in asyncio.run(_existing_tables()) if name != ALEMBIC_VERSION_TABLE]
-    if tables:
-        print(f"[init-db] schema already present ({len(tables)} tables), skipping.", flush=True)
+    tables = asyncio.run(_existing_tables())
+    has_version_table = ALEMBIC_VERSION_TABLE in tables
+    app_tables = [name for name in tables if name != ALEMBIC_VERSION_TABLE]
+    has_revisions = _has_revisions()
+    config = Config(ALEMBIC_CONFIG)
+
+    if app_tables and has_version_table:
+        print(f"[init-db] schema already present ({len(app_tables)} tables), skipping.", flush=True)
         return
 
-    if _has_revisions():
+    if app_tables and not has_version_table and has_revisions:
+        print("[init-db] schema present without alembic_version; running 'alembic stamp head' ...", flush=True)
+        command.stamp(config, "head")
+        print("[init-db] database schema is ready.", flush=True)
+        return
+
+    if app_tables:
+        print(f"[init-db] schema already present ({len(app_tables)} tables), skipping.", flush=True)
+        return
+
+    if has_revisions:
         print("[init-db] empty database detected, running 'alembic upgrade head' ...", flush=True)
-        command.upgrade(Config(ALEMBIC_CONFIG), "head")
+        command.upgrade(config, "head")
     else:
         print("[init-db] no migrations found, creating schema from models ...", flush=True)
         asyncio.run(_create_schema_from_models())

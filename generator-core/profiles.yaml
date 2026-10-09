@@ -23,22 +23,14 @@ profiles:
   celery-tools:
     - redis
     - celery
-    - flower
     - celery-beat
   observability:
     - prometheus
     - logging-elasticsearch
   messaging:
     - rabbitmq
+  messaging-kafka:
     - kafka
-  production:
-    - redis
-    - auth
-    - users-profiles
-    - roles-permissions
-    - celery
-    - celery-beat
-    - caddy
   full:
     - redis
     - celery
@@ -56,4 +48,3 @@ profiles:
     - prometheus
     - caddy
     - rabbitmq
-    - kafka
