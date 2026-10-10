@@ -19,7 +19,8 @@ from packaging.version import InvalidVersion, Version
 from generator.contracts import ContractValidator
 from generator.manifest import ModuleManifest, parse_manifest
 
-_PROJECT_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+# Must be a valid Python package name (no hyphens — they break imports).
+_PROJECT_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 _MODULE_ID_RE = re.compile(r"^[a-z0-9-]+$")
 
 
@@ -350,7 +351,7 @@ class Engine:
     ) -> None:
         if not _PROJECT_NAME_RE.match(project_name):
             raise GenerationError(
-                "Project name must start with a letter and contain only letters, digits, underscores and hyphens."
+                "Project name must start with a letter and contain only letters, digits and underscores (no hyphens)."
             )
 
         target_dir = target_dir.resolve()

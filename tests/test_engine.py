@@ -329,6 +329,13 @@ def test_overwrite_preserves_backup_on_swap(tmp_path: Path, core_template: Path,
     assert not marker.exists()
 
 
+def test_rejects_hyphenated_project_name(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    with pytest.raises(GenerationError, match="no hyphens"):
+        _engine(core_template, modules_dir).generate(
+            tmp_path / "payments-service", "payments-service", [], core_version="1.0.0"
+        )
+
+
 def test_rejects_module_path_traversal(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
     with pytest.raises(GenerationError, match="Invalid module id"):
         _engine(core_template, modules_dir).generate(tmp_path / "evil", "evil", ["../etc"], core_version="1.0.0")
@@ -708,6 +715,22 @@ def test_mfa_auto_expands_auth_and_email(tmp_path: Path, core_template: Path, mo
     assert (target / "src/mfa_only/core/security.py").exists()
     assert (target / "src/mfa_only/adapters/email/config.py").exists()
     assert (target / "src/mfa_only/model/mfa.py").exists()
+
+
+def test_core_omits_module_only_dependencies(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "bare"
+    _engine(core_template, modules_dir).generate(target, "bare", [], core_version="1.0.0")
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "aiosmtplib" not in pyproject
+
+
+def test_generate_email_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withemail"
+    _engine(core_template, modules_dir).generate(target, "withemail", ["email"], core_version="1.0.0")
+
+    assert (target / "src/withemail/adapters/email/smtp_sender.py").exists()
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "aiosmtplib" in pyproject
 
 
 def test_generate_logging_elasticsearch_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:

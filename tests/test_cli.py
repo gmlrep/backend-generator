@@ -2,7 +2,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from generator.cli import _generator_data_root, _load_core_version, _resolve_paths, cli
+from generator.cli import cli
+from generator.paths import generator_data_root, load_core_version, resolve_paths
 
 
 def _invoke(tmp_path: Path, core_template: Path, modules_dir: Path, extra: list[str], name: str):
@@ -24,10 +25,10 @@ def _invoke(tmp_path: Path, core_template: Path, modules_dir: Path, extra: list[
 
 
 def test_generator_data_root_finds_repo_layout() -> None:
-    root = _generator_data_root()
+    root = generator_data_root()
     assert (root / "generator-core" / "core_template").is_dir()
-    assert _load_core_version(root) == "1.0.0"
-    core, modules, data_root = _resolve_paths(None, None)
+    assert load_core_version(root) == "1.0.0"
+    core, modules, data_root = resolve_paths(None, None)
     assert core == data_root / "generator-core" / "core_template"
     assert modules == data_root / "generator-core" / "modules"
 
@@ -37,15 +38,15 @@ def test_generator_data_root_installed_layout(tmp_path: Path, monkeypatch) -> No
     site = tmp_path / "site-packages"
     pkg = site / "generator"
     pkg.mkdir(parents=True)
-    fake_cli = pkg / "cli.py"
-    fake_cli.write_text("# placeholder\n", encoding="utf-8")
+    fake_paths = pkg / "paths.py"
+    fake_paths.write_text("# placeholder\n", encoding="utf-8")
     core = site / "generator-core" / "core_template"
     core.mkdir(parents=True)
     (site / "generator-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
 
-    monkeypatch.setattr("generator.cli.__file__", str(fake_cli))
-    assert _generator_data_root() == site
-    assert _load_core_version(site) == "1.0.0"
+    monkeypatch.setattr("generator.paths.__file__", str(fake_paths))
+    assert generator_data_root() == site
+    assert load_core_version(site) == "1.0.0"
 
 
 def test_cli_non_interactive_create(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
@@ -66,6 +67,13 @@ def test_cli_rejects_invalid_name(tmp_path: Path, core_template: Path, modules_d
     result = _invoke(tmp_path, core_template, modules_dir, [], "1-bad-name")
     assert result.exit_code != 0
     assert "Project name must start with a letter" in result.output
+
+
+def test_cli_rejects_hyphenated_name(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(tmp_path, core_template, modules_dir, [], "payments-service")
+    assert result.exit_code != 0
+    assert "no hyphens" in result.output
 
 
 def test_cli_rejects_existing_target(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
@@ -111,7 +119,7 @@ def test_cli_venv_flag_calls_setup(tmp_path: Path, core_template: Path, modules_
         called["target"] = target_dir
         return True
 
-    monkeypatch.setattr("generator.cli._setup_venv", fake_setup)
+    monkeypatch.setattr("generator.postprocess.setup_venv", fake_setup)
     result = _invoke(tmp_path, core_template, modules_dir, ["--venv"], "venv_app")
     assert result.exit_code == 0, result.output
     assert called["target"] == tmp_path / "venv_app"
@@ -286,14 +294,14 @@ def test_cli_skips_git_init_when_git_missing(
     tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("generator.cli._git_available", lambda: False)
+    monkeypatch.setattr("generator.postprocess.git_available", lambda: False)
     called: dict[str, bool] = {}
 
     def fail_if_called(*args: object, **kwargs: object) -> None:
         called["called"] = True
-        raise AssertionError("_init_git must not be called when git is missing")
+        raise AssertionError("init_git must not be called when git is missing")
 
-    monkeypatch.setattr("generator.cli._init_git", fail_if_called)
+    monkeypatch.setattr("generator.postprocess.init_git", fail_if_called)
 
     result = _invoke(tmp_path, core_template, modules_dir, ["--profile", "minimal"], "nogitbin")
     assert result.exit_code == 0, result.output
@@ -392,45 +400,46 @@ def _patch_prompts(
         "checkbox": deque(checkboxes or []),
         "modules": deque(module_checkboxes if module_checkboxes is not None else checkboxes or []),
     }
-    monkeypatch.setattr("generator.cli._ask_select", lambda *a, **k: queues["select"].popleft())
-    monkeypatch.setattr("generator.cli._ask_text", lambda *a, **k: queues["text"].popleft())
-    monkeypatch.setattr("generator.cli._ask_confirm", lambda *a, **k: queues["confirm"].popleft())
-    monkeypatch.setattr("generator.cli._ask_checkbox", lambda *a, **k: queues["checkbox"].popleft())
+    monkeypatch.setattr("generator.prompts.ask_select", lambda *a, **k: queues["select"].popleft())
+    monkeypatch.setattr("generator.prompts.ask_text", lambda *a, **k: queues["text"].popleft())
+    monkeypatch.setattr("generator.prompts.ask_confirm", lambda *a, **k: queues["confirm"].popleft())
+    monkeypatch.setattr("generator.prompts.ask_checkbox", lambda *a, **k: queues["checkbox"].popleft())
     monkeypatch.setattr(
-        "generator.cli._ask_checkbox_with_back",
+        "generator.prompts.ask_checkbox_with_back",
         lambda *a, **k: queues["modules"].popleft(),
     )
 
 
 def test_project_name_validator() -> None:
-    from generator.cli import _validate_project_name_answer
+    from generator.prompts import validate_project_name_answer
 
-    assert _validate_project_name_answer("valid_name") is True
-    assert isinstance(_validate_project_name_answer("1bad"), str)
+    assert validate_project_name_answer("valid_name") is True
+    assert isinstance(validate_project_name_answer("1bad"), str)
+    assert isinstance(validate_project_name_answer("payments-service"), str)
 
 
 def test_compose_service_choices_includes_brokers_when_selected() -> None:
-    from generator.cli import _compose_service_choices
+    from generator.compose_services import compose_service_choices
 
-    values = {c.value for c in _compose_service_choices({"rabbitmq"})}
+    values = {c.value for c in compose_service_choices({"rabbitmq"})}
     assert "rabbitmq" in values
     assert "caddy" in values
     assert "kafka" not in values
     assert "flower" not in values
 
-    values = {c.value for c in _compose_service_choices({"kafka", "celery"})}
+    values = {c.value for c in compose_service_choices({"kafka", "celery"})}
     assert "kafka" in values
     assert "flower" in values
     assert "caddy" in values
     assert "rabbitmq" not in values
 
-    values = {c.value for c in _compose_service_choices({"celery", "flower", "caddy"})}
+    values = {c.value for c in compose_service_choices({"celery", "flower", "caddy"})}
     assert "flower" not in values
     assert "caddy" in values
-    caddy_choice = next(c for c in _compose_service_choices({"celery", "flower", "caddy"}) if c.value == "caddy")
+    caddy_choice = next(c for c in compose_service_choices({"celery", "flower", "caddy"}) if c.value == "caddy")
     assert caddy_choice.checked is True
 
-    bare = {c.value for c in _compose_service_choices(set())}
+    bare = {c.value for c in compose_service_choices(set())}
     assert bare == {"caddy"}
 
 
@@ -459,7 +468,7 @@ def test_cli_interactive_venv_is_created_when_selected(tmp_path: Path, monkeypat
         called["target"] = target_dir
         return True
 
-    monkeypatch.setattr("generator.cli._setup_venv", fake_setup)
+    monkeypatch.setattr("generator.postprocess.setup_venv", fake_setup)
     _patch_prompts(
         monkeypatch,
         selects=["create", "auth-service", "github"],
@@ -537,7 +546,7 @@ def test_cli_interactive_custom_expands_requirements(tmp_path: Path, monkeypatch
 
 def test_cli_interactive_custom_modules_backspace_returns_to_profile(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    from generator.cli import _GO_BACK
+    from generator.constants import GO_BACK
 
     _patch_prompts(
         monkeypatch,
@@ -545,7 +554,7 @@ def test_cli_interactive_custom_modules_backspace_returns_to_profile(tmp_path: P
         texts=["backed_app"],
         confirms=[False],
         checkboxes=[[]],
-        module_checkboxes=[_GO_BACK],
+        module_checkboxes=[GO_BACK],
     )
 
     result = CliRunner().invoke(cli, [])
