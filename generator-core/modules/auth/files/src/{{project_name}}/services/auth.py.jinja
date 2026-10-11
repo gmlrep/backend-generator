@@ -61,7 +61,7 @@ class AuthService(BaseService):
             payload = Payload(id=user.id, email=user.email, name=user.name, is_superuser=user.is_superuser)
             mfa_token, _, _ = create_mfa_token(payload.model_dump())
             return SignInResponse(mfa_required=True, mfa_token=mfa_token, user_info=user)
-        return await self._issue_tokens(user)
+        return await self.issue_tokens(user)
 
     async def complete_mfa_sign_in(self, mfa_token: str, code: str) -> SignInResponse:
         if self.mfa_service is None:
@@ -79,7 +79,7 @@ class AuthService(BaseService):
         user_model = await self.user_repository.read_by_id(user_id)
         if user_model is None or not user_model.is_active:
             raise AuthError(detail="Inactive user")
-        return await self._issue_tokens(User.model_validate(user_model))
+        return await self.issue_tokens(User.model_validate(user_model))
 
     async def sign_in_oauth(self, form_data: OAuth2PasswordRequestForm) -> SignInResponse:
         return await self.sign_in(SignIn(email=form_data.username, password=form_data.password))
@@ -110,7 +110,7 @@ class AuthService(BaseService):
         user_model = await self.user_repository.read_by_id(int(payload["id"]))
         if user_model is None or not user_model.is_active:
             raise AuthError(detail="Inactive user")
-        return await self._issue_tokens(User.model_validate(user_model))
+        return await self.issue_tokens(User.model_validate(user_model))
 
     async def logout(self, refresh_token: str, access_token: str | None = None) -> None:
         try:
@@ -134,7 +134,8 @@ class AuthService(BaseService):
                     ttl = max(int(exp - datetime.now(UTC).timestamp()), 1)
                 await self.token_store.revoke_access(access_jti, ttl)
 
-    async def _issue_tokens(self, user: User) -> SignInResponse:
+    async def issue_tokens(self, user: User) -> SignInResponse:
+        """Issue access + refresh tokens for an authenticated user."""
         payload = Payload(id=user.id, email=user.email, name=user.name, is_superuser=user.is_superuser)
         access_token, expiration, _ = create_access_token(payload.model_dump())
         refresh_token, _, refresh_jti = create_refresh_token(payload.model_dump())

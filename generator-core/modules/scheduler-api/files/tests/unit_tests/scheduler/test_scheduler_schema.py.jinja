@@ -2,11 +2,11 @@ from {{project_name}}.schema.scheduler import ScheduleCreate, TaskRunResponse
 
 
 def test_schedule_create_defaults() -> None:
-    payload = ScheduleCreate(name="job", task="beat.heartbeat", every_seconds=60)
+    payload = ScheduleCreate(name="job", task="{{project_name}}.tasks.beat.heartbeat", every_seconds=60)
     assert payload.enabled is True
     assert payload.args is None
 
 
 def test_task_run_response() -> None:
-    resp = TaskRunResponse(task_id="abc", task="beat.heartbeat")
+    resp = TaskRunResponse(task_id="abc", task="{{project_name}}.tasks.beat.heartbeat")
     assert resp.task_id == "abc"

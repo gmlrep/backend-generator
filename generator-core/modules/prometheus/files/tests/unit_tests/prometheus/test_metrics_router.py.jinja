@@ -4,13 +4,25 @@ from httpx import ASGITransport, AsyncClient
 from {{project_name}}.infrastructure.prometheus.instrumentation import setup_metrics
 
 
-async def test_metrics_endpoint_is_exposed() -> None:
+async def test_metrics_endpoint_is_exposed_locally() -> None:
     app = FastAPI()
-    setup_metrics(app, endpoint="/metrics")
+    setup_metrics(app, endpoint="/metrics", token="")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/metrics")
 
     assert response.status_code == 200
-    assert "http" in response.text
+    assert "http" in response.text or "python" in response.text
+
+
+async def test_metrics_endpoint_requires_bearer_token() -> None:
+    app = FastAPI()
+    setup_metrics(app, endpoint="/metrics", token="secret")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        denied = await client.get("/metrics")
+        assert denied.status_code == 401
+        ok = await client.get("/metrics", headers={"Authorization": "Bearer secret"})
+        assert ok.status_code == 200

@@ -94,6 +94,10 @@ targets are matched after all module files are copied:
 | --- | --- | --- | --- |
 | `EXTENSION_CELERY_BEAT` | `src/{{project_name}}/infrastructure/celery/app.py` | `celery` | Apply the periodic `beat_schedule` |
 
+These module-owned markers are **not** registered in `BUILTIN_CONTRACTS`
+(`src/generator/contracts.py`). Core contract validation only covers markers
+that ship in `core_template`; celery / scheduler-api own `EXTENSION_CELERY_BEAT`.
+
 ## Why markers instead of AST rewriting
 
 - The core is a normal, runnable FastAPI project at all times.

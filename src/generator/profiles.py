@@ -7,8 +7,9 @@ from pathlib import Path
 import yaml
 
 from generator.constants import DEFAULT_PROFILE_ORDER
-from generator.engine import GenerationError
+from generator.errors import GenerationError
 from generator.manifest import parse_manifest
+from generator.paths_safe import ensure_inside, validate_module_id
 
 
 def available_profiles(modules_path: Path) -> list[str]:
@@ -42,12 +43,15 @@ def expand_requirements(selected: set[str], modules_path: Path) -> tuple[set[str
     """Return the selection plus every transitively required module."""
     resolved: set[str] = set()
     pending = list(selected)
+    modules_path = modules_path.resolve()
     while pending:
         module_id = pending.pop()
         if module_id in resolved:
             continue
+        validate_module_id(module_id)
+        module_dir = ensure_inside(modules_path, modules_path / module_id, label=f"Module '{module_id}'")
         resolved.add(module_id)
-        manifest_path = modules_path / module_id / "manifest.yaml"
+        manifest_path = module_dir / "manifest.yaml"
         if not manifest_path.exists():
             raise GenerationError(f"Unknown module '{module_id}': no manifest.yaml found")
         for requirement in parse_manifest(manifest_path, expected_id=module_id).requires_modules:

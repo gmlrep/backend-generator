@@ -26,7 +26,12 @@ def cached(
     key_prefix: str | None = None,
     redis_client: RedisClient | None = None,
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
-    """Cache an async function's return value in Redis as JSON."""
+    """Cache an async function's return value in Redis as JSON.
+
+    Values must be JSON-serializable. Cache hits return decoded JSON
+    (typically ``dict`` / ``list``), not the original Python types
+    (e.g. Pydantic models are not reconstituted).
+    """
 
     def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         if not inspect.iscoroutinefunction(func):

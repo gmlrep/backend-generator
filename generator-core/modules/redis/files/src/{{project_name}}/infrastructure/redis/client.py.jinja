@@ -30,6 +30,10 @@ class RedisClient:
     async def get(self, key: str) -> str | None:
         return cast("str | None", await self._client.get(key))
 
+    async def getdel(self, key: str) -> str | None:
+        """Atomically get and delete a key (Redis GETDEL)."""
+        return cast("str | None", await self._client.getdel(key))
+
     async def set(self, key: str, value: str, ttl: int | None = None) -> None:
         await self._client.set(key, value, ex=ttl if ttl is not None else self._default_ttl)
 

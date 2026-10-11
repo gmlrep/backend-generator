@@ -609,3 +609,47 @@ def test_cli_interactive_confirm_overwrite(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert not (target / "stale.txt").exists()
     assert (target / "src" / "existing_app" / "__main__.py").exists()
+
+
+def test_cli_rejects_invalid_module_id(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--modules", "../evil"],
+        "badmod",
+    )
+    assert result.exit_code != 0
+    assert "Invalid module id" in result.output
+
+
+def test_cli_seeds_flower_and_rustfs_secrets(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        [
+            "--profile",
+            "minimal",
+            "--modules",
+            "celery,s3",
+            "--compose-services",
+            "flower,rustfs",
+            "--non-interactive",
+            "--no-git",
+        ],
+        "secrety",
+    )
+    assert result.exit_code == 0, result.output
+    example = (tmp_path / "secrety" / ".env.example").read_text(encoding="utf-8")
+    dotenv = (tmp_path / "secrety" / ".env").read_text(encoding="utf-8")
+    assert "FLOWER_BASIC_AUTH=admin:replace-me" in example
+    assert "FLOWER_BASIC_AUTH=admin:replace-me" not in dotenv
+    assert "FLOWER_BASIC_AUTH=admin:" in dotenv
+    assert "RUSTFS_ACCESS_KEY=replace-me" in example
+    assert "RUSTFS_ACCESS_KEY=replace-me" not in dotenv
+    assert "RUSTFS_ACCESS_KEY=" in dotenv

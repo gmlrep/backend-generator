@@ -12,6 +12,7 @@ from generator.commands.create import CreateCommand
 from generator.constants import CUSTOM_PROFILE, GO_BACK, PROJECT_NAME_RE, VCS_PROMPT_CHOICES
 from generator.manifest import parse_manifest
 from generator.paths import resolve_paths
+from generator.paths_safe import ensure_inside, validate_module_id
 from generator.profiles import available_profiles, list_all_modules, resolve_profile
 
 
@@ -97,8 +98,12 @@ def prompt_modules(modules_path: Path) -> list[str] | Any:
     can be shown again.
     """
     choices: list[questionary.Choice] = []
+    modules_root = modules_path.resolve()
     for module_id in list_all_modules(modules_path):
-        manifest = parse_manifest(modules_path / module_id / "manifest.yaml")
+        validate_module_id(module_id)
+        manifest = parse_manifest(
+            ensure_inside(modules_root, modules_root / module_id / "manifest.yaml", label=f"Module '{module_id}'")
+        )
         label = module_id
         if manifest.requires_modules:
             label += f"  (requires: {', '.join(manifest.requires_modules)})"

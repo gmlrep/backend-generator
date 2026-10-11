@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from {{project_name}}.core.exceptions import AuthError
@@ -14,6 +16,9 @@ class FakeRedis:
     async def get(self, key: str) -> str | None:
         return self.store.get(key)
 
+    async def getdel(self, key: str) -> str | None:
+        return self.store.pop(key, None)
+
     async def delete(self, *keys: str) -> int:
         n = 0
         for key in keys:
@@ -23,16 +28,146 @@ class FakeRedis:
         return n
 
 
+def _service(redis: FakeRedis | None = None) -> OAuthService:
+    return OAuthService(
+        user_repository=None,  # type: ignore[arg-type]
+        oauth_account_repository=None,  # type: ignore[arg-type]
+        auth_service=None,  # type: ignore[arg-type]
+        redis_client=redis or FakeRedis(),  # type: ignore[arg-type]
+    )
+
+
 @pytest.mark.asyncio
 async def test_unknown_provider(monkeypatch) -> None:
     from {{project_name}}.core.config import settings
 
     monkeypatch.setattr(settings.oauth, "GOOGLE_ENABLED", True)
+    with pytest.raises(AuthError):
+        await _service().get_authorize_url("unknown")
+
+
+@pytest.mark.asyncio
+async def test_disabled_provider(monkeypatch) -> None:
+    from {{project_name}}.core.config import settings
+
+    monkeypatch.setattr(settings.oauth, "GOOGLE_ENABLED", False)
+    with pytest.raises(AuthError, match="disabled"):
+        await _service().get_authorize_url("google")
+
+
+@pytest.mark.asyncio
+async def test_authorize_url_includes_pkce(monkeypatch) -> None:
+    from {{project_name}}.core.config import settings
+
+    monkeypatch.setattr(settings.oauth, "GOOGLE_ENABLED", True)
+    monkeypatch.setattr(settings.oauth, "GOOGLE_CLIENT_ID", "cid")
+    redis = FakeRedis()
+    url = await _service(redis).get_authorize_url("google")
+    assert "code_challenge=" in url
+    assert "code_challenge_method=S256" in url
+    assert redis.store
+    state_payload = json.loads(next(iter(redis.store.values())))
+    assert state_payload["provider"] == "google"
+    assert state_payload["verifier"]
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_invalid_state(monkeypatch) -> None:
+    from {{project_name}}.core.config import settings
+
+    monkeypatch.setattr(settings.oauth, "GOOGLE_ENABLED", True)
+    with pytest.raises(AuthError, match="Invalid OAuth state"):
+        await _service().handle_callback("google", code="x", state="missing")
+
+
+@pytest.mark.asyncio
+async def test_callback_consumes_state_atomically(monkeypatch) -> None:
+    from {{project_name}}.core.config import settings
+
+    monkeypatch.setattr(settings.oauth, "GOOGLE_ENABLED", True)
+    redis = FakeRedis()
+    redis.store["oauth:state:abc"] = json.dumps({"provider": "google", "verifier": "v"})
+    # Second call after getdel must fail even if first fails later on credentials/token.
+    svc = _service(redis)
+    with pytest.raises(AuthError):
+        await svc.handle_callback("google", code="x", state="abc")
+    assert "oauth:state:abc" not in redis.store
+    with pytest.raises(AuthError, match="Invalid OAuth state"):
+        await svc.handle_callback("google", code="x", state="abc")
+
+
+@pytest.mark.asyncio
+async def test_upsert_rejects_unverified_google_email(monkeypatch) -> None:
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"sub": "1", "email": "a@example.com", "email_verified": False}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *_a, **_k):
+            return _Resp()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _Client())
+    with pytest.raises(AuthError, match="not verified"):
+        await _service()._fetch_profile("google", {"access_token": "t"})  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_upsert_rejects_email_collision(monkeypatch) -> None:
+    class FakeUsers:
+        async def read_by_options(self, *_a, **_k):
+            return {"founds": [object()]}
+
+        async def read_by_id(self, *_a, **_k):
+            return None
+
+        async def create(self, user):
+            return user
+
+    class FakeOAuthRepo:
+        async def read_by_options(self, *_a, **_k):
+            return {"founds": []}
+
+        async def create(self, account):
+            return account
+
     svc = OAuthService(
-        user_repository=None,  # type: ignore[arg-type]
-        oauth_account_repository=None,  # type: ignore[arg-type]
+        user_repository=FakeUsers(),  # type: ignore[arg-type]
+        oauth_account_repository=FakeOAuthRepo(),  # type: ignore[arg-type]
         auth_service=None,  # type: ignore[arg-type]
         redis_client=FakeRedis(),  # type: ignore[arg-type]
     )
-    with pytest.raises(AuthError):
-        await svc.get_authorize_url("unknown")
+    with pytest.raises(AuthError, match="already exists"):
+        await svc._upsert_user(  # noqa: SLF001
+            "google",
+            {"provider_user_id": "1", "email": "taken@example.com", "name": "T"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_upsert_rejects_synthetic_email() -> None:
+    class EmptyOAuth:
+        async def read_by_options(self, *_a, **_k):
+            return {"founds": []}
+
+    svc = OAuthService(
+        user_repository=None,  # type: ignore[arg-type]
+        oauth_account_repository=EmptyOAuth(),  # type: ignore[arg-type]
+        auth_service=None,  # type: ignore[arg-type]
+        redis_client=FakeRedis(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(AuthError, match="Synthetic"):
+        await svc._upsert_user(  # noqa: SLF001
+            "github",
+            {"provider_user_id": "1", "email": "1@github.oauth.local", "name": "X"},
+        )

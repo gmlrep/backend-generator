@@ -1,0 +1,58 @@
+import pytest
+
+from {{project_name}}.core.exceptions import ValidationError
+from {{project_name}}.services.scheduler import SchedulerService
+
+
+class _FakeApp:
+    def __init__(self, tasks: dict[str, object]) -> None:
+        self.tasks = tasks
+        self.conf = type("C", (), {"beat_schedule": {}})()
+        self.sent: list[tuple[str, list, dict]] = []
+
+    def send_task(self, name: str, args: list | None = None, kwargs: dict | None = None):
+        self.sent.append((name, args or [], kwargs or {}))
+        return type("R", (), {"id": "tid-1"})()
+
+
+def test_list_tasks_filters_allowlist(monkeypatch) -> None:
+    import {{project_name}}.services.scheduler as mod
+
+    app = _FakeApp(
+        {
+            "{{project_name}}.tasks.beat.heartbeat": object(),
+            "celery.backend_cleanup": object(),
+            "other.pkg.task": object(),
+        }
+    )
+    monkeypatch.setattr(mod, "celery_app", app)
+    assert SchedulerService().list_tasks() == ["{{project_name}}.tasks.beat.heartbeat"]
+
+
+def test_run_task_rejects_celery_builtin(monkeypatch) -> None:
+    import {{project_name}}.services.scheduler as mod
+
+    app = _FakeApp({"celery.backend_cleanup": object()})
+    monkeypatch.setattr(mod, "celery_app", app)
+    with pytest.raises(ValidationError, match="not allowed"):
+        SchedulerService().run_task("celery.backend_cleanup")
+
+
+def test_run_task_rejects_unknown(monkeypatch) -> None:
+    import {{project_name}}.services.scheduler as mod
+
+    monkeypatch.setattr(mod, "celery_app", _FakeApp({}))
+    with pytest.raises(ValidationError, match="Unknown task"):
+        SchedulerService().run_task("{{project_name}}.tasks.missing")
+
+
+def test_create_schedule_rejects_disallowed_task(monkeypatch) -> None:
+    import {{project_name}}.services.scheduler as mod
+    from {{project_name}}.schema.scheduler import ScheduleCreate
+
+    app = _FakeApp({"celery.backend_cleanup": object()})
+    monkeypatch.setattr(mod, "celery_app", app)
+    with pytest.raises(ValidationError, match="not allowed"):
+        SchedulerService().create_schedule(
+            ScheduleCreate(name="j", task="celery.backend_cleanup", every_seconds=30)
+        )

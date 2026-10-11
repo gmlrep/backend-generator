@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from celery.schedules import schedule as celery_schedule
+from loguru import logger
 from redbeat import RedBeatSchedulerEntry
 
 from {{project_name}}.core.config import settings
@@ -10,9 +12,17 @@ from {{project_name}}.core.exceptions import NotFoundError, ValidationError
 from {{project_name}}.infrastructure.celery.app import celery_app
 from {{project_name}}.schema.scheduler import ScheduleCreate, ScheduleRead, ScheduleUpdate, TaskRunResponse
 
+_TASK_ALLOWLIST = re.compile(r"^{{project_name}}\.tasks\.")
+
 
 class SchedulerService:
     """CRUD over RedBeat entries plus one-shot task trigger."""
+
+    def _assert_allowed_task(self, name: str) -> None:
+        if name not in celery_app.tasks:
+            raise ValidationError(detail=f"Unknown task '{name}'")
+        if not _TASK_ALLOWLIST.match(name):
+            raise ValidationError(detail=f"Task '{name}' is not allowed")
 
     def list_schedules(self) -> list[ScheduleRead]:
         items: list[ScheduleRead] = []
@@ -40,7 +50,8 @@ class SchedulerService:
                     continue
                 try:
                     entry = RedBeatSchedulerEntry.from_key(key_str, app=celery_app)
-                except Exception:
+                except KeyError:
+                    logger.warning("Skipping unreadable RedBeat key {}", key_str)
                     continue
                 every = float(entry.schedule.seconds) if hasattr(entry.schedule, "seconds") else None
                 items.append(
@@ -55,12 +66,14 @@ class SchedulerService:
                     )
                 )
         except Exception:
-            pass
+            logger.exception("Failed to list RedBeat schedules")
+            raise
         return items
 
     def create_schedule(self, payload: ScheduleCreate) -> ScheduleRead:
         if payload.every_seconds <= 0:
             raise ValidationError(detail="every_seconds must be positive")
+        self._assert_allowed_task(payload.task)
         entry = RedBeatSchedulerEntry(
             name=payload.name,
             task=payload.task,
@@ -118,10 +131,11 @@ class SchedulerService:
         entry.delete()
 
     def list_tasks(self) -> list[str]:
-        return sorted(celery_app.tasks.keys())
+        return sorted(name for name in celery_app.tasks if _TASK_ALLOWLIST.match(name))
 
     def run_task(
         self, name: str, *, args: list[Any] | None = None, kwargs: dict[str, Any] | None = None
     ) -> TaskRunResponse:
+        self._assert_allowed_task(name)
         result = celery_app.send_task(name, args=args or [], kwargs=kwargs or {})
         return TaskRunResponse(task_id=result.id, task=name)

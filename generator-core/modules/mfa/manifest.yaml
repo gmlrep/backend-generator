@@ -30,6 +30,9 @@ patches:
   - target: src/{{project_name}}/core/config.py
     marker: EXTENSION_SETTINGS
     fragment: fragments/mfa_config_settings.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_VALIDATION
+    fragment: fragments/mfa_config_validation.py.jinja
   - target: src/{{project_name}}/core/container.py
     marker: EXTENSION_CONTAINER_IMPORTS
     fragment: fragments/mfa_container_imports.py.jinja

@@ -12,3 +12,4 @@ class PrometheusSettings(BaseSettings):
 
     ENABLED: bool = Field(default=True, validation_alias="PROMETHEUS_ENABLED")
     ENDPOINT: str = Field(default="/metrics", validation_alias="PROMETHEUS_ENDPOINT")
+    METRICS_TOKEN: str = Field(default="", validation_alias="METRICS_TOKEN")

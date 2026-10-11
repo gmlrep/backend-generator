@@ -994,8 +994,12 @@ def test_generate_rustfs_module(tmp_path: Path, core_template: Path, modules_dir
     compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
     assert "rustfs" in compose["services"]
     assert compose["services"]["rustfs"]["image"].startswith("rustfs/rustfs:")
+    assert compose["services"]["rustfs"]["image"] != "rustfs/rustfs:latest"
     assert "rustfsdata" in compose["volumes"]
     assert "S3_ENDPOINT_URL=http://rustfs:9000" in (target / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "RUSTFS_CONSOLE_ENABLE=${RUSTFS_CONSOLE_ENABLE:-false}" in (target / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_generate_opentelemetry_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
@@ -1045,3 +1049,87 @@ def test_generate_scheduler_api_module(tmp_path: Path, core_template: Path, modu
     assert "scheduler_router" in routes
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert "celery-redbeat" in pyproject
+    service = (target / "src/withsched/services/scheduler.py").read_text(encoding="utf-8")
+    assert "_assert_allowed_task" in service
+    assert r"withsched\.tasks\." in service or "withsched.tasks." in service
+
+
+def test_expand_requirements_rejects_path_traversal(modules_dir: Path) -> None:
+    from generator.profiles import expand_requirements
+
+    with pytest.raises(GenerationError, match="Invalid module id"):
+        expand_requirements({"../etc"}, modules_dir)
+
+
+def test_sandboxed_jinja_blocks_attribute_traversal(tmp_path: Path, core_template: Path) -> None:
+    from jinja2.exceptions import SecurityError
+
+    modules = tmp_path / "modules"
+    evil = modules / "evil-ssti"
+    (evil / "files").mkdir(parents=True)
+    (evil / "manifest.yaml").write_text(
+        "manifest_version: '1'\n"
+        "id: evil-ssti\n"
+        "version: '1.0.0'\n"
+        "requires: {core: '>=1.0.0', modules: []}\n"
+        "conflicts: []\n"
+        "python_dependencies: []\n"
+        "patches: []\n",
+        encoding="utf-8",
+    )
+    (evil / "files" / "pwned.txt.jinja").write_text(
+        "{{ project_name.__class__.__mro__ }}",
+        encoding="utf-8",
+    )
+    target = tmp_path / "ssti"
+    with pytest.raises(SecurityError):
+        _engine(core_template, modules).generate(target, "ssti", ["evil-ssti"], core_version="1.0.0")
+
+
+def test_write_ci_destination_containment(tmp_path: Path) -> None:
+    from generator.errors import GenerationError
+    from generator.paths_safe import ensure_inside
+
+    target = tmp_path / "proj"
+    target.mkdir()
+    with pytest.raises(GenerationError, match="escapes"):
+        ensure_inside(target, target / ".." / "outside.yml", label="CI destination")
+
+
+def test_generate_auth_oauth_service_profile(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    from generator.profiles import resolve_profile
+
+    modules = resolve_profile("auth-oauth-service", modules_dir)
+    assert modules is not None
+    target = tmp_path / "oauthprof"
+    _engine(core_template, modules_dir).generate(target, "oauthprof", modules, core_version="1.0.0")
+    oauth = (target / "src/oauthprof/services/oauth.py").read_text(encoding="utf-8")
+    assert "code_challenge" in oauth
+    assert "getdel" in oauth
+    assert "issue_tokens" in oauth
+    assert "email_verified" in oauth
+
+
+def test_generate_observability_profile(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    from generator.profiles import resolve_profile
+
+    modules = resolve_profile("observability", modules_dir)
+    assert modules is not None
+    target = tmp_path / "obsprof"
+    _engine(core_template, modules_dir).generate(target, "obsprof", modules, core_version="1.0.0")
+    assert (target / "src/obsprof/infrastructure/telemetry/setup.py").exists()
+    assert (target / "src/obsprof/infrastructure/prometheus/instrumentation.py").exists()
+    metrics = (target / "src/obsprof/infrastructure/prometheus/instrumentation.py").read_text(encoding="utf-8")
+    assert "Bearer" in metrics
+
+
+def test_generate_full_profile(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    from generator.profiles import resolve_profile
+
+    modules = resolve_profile("full", modules_dir)
+    assert modules is not None
+    target = tmp_path / "fullprof"
+    _engine(core_template, modules_dir).generate(target, "fullprof", modules, core_version="1.0.0")
+    assert (target / "src/fullprof/services/oauth.py").exists()
+    assert (target / "src/fullprof/services/scheduler.py").exists()
+    assert (target / "src/fullprof/infrastructure/redis/cache.py").exists()

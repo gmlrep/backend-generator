@@ -12,35 +12,25 @@ from typing import Any
 
 import jinja2
 import tomlkit
+from jinja2.sandbox import SandboxedEnvironment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from generator.contracts import ContractValidator
+from generator.errors import GenerationError
 from generator.manifest import ModuleManifest, parse_manifest
+from generator.paths_safe import ensure_inside, validate_module_id
+
+# Re-export for callers that import from generator.engine.
+__all__ = ["Engine", "GenerationError"]
 
 # Must be a valid Python package name (no hyphens — they break imports).
 _PROJECT_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
-_MODULE_ID_RE = re.compile(r"^[a-z0-9-]+$")
 
 
 def _insert_after_marker(match: re.Match[str], combined: str) -> str:
     return f"{match.group(1)}\n{combined}"
-
-
-class GenerationError(Exception):
-    """Raised when generation fails before writing anything to the target."""
-
-
-def _ensure_inside(root: Path, candidate: Path, *, label: str) -> Path:
-    """Resolve ``candidate`` and require it to stay under ``root``."""
-    root_resolved = root.resolve()
-    resolved = candidate.resolve()
-    try:
-        resolved.relative_to(root_resolved)
-    except ValueError as exc:
-        raise GenerationError(f"{label} escapes allowed root {root_resolved}: {candidate}") from exc
-    return resolved
 
 
 class Engine:
@@ -53,7 +43,7 @@ class Engine:
         self.core_template_dir = core_template_dir.resolve()
         self.modules_dir = modules_dir.resolve()
         self.validator = contracts or ContractValidator()
-        self._jinja_env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        self._jinja_env = SandboxedEnvironment(undefined=jinja2.StrictUndefined)
 
     def _render_path(self, relative: str, context: dict[str, Any]) -> str:
         return self._jinja_env.from_string(relative).render(context)
@@ -64,7 +54,7 @@ class Engine:
         for src in self.core_template_dir.rglob("*"):
             rel = src.relative_to(self.core_template_dir)
             rendered_rel = self._render_path(str(rel), context)
-            dst = _ensure_inside(temp_path, temp_path / rendered_rel, label="Core destination")
+            dst = ensure_inside(temp_path, temp_path / rendered_rel, label="Core destination")
 
             if src.is_dir():
                 dst.mkdir(parents=True, exist_ok=True)
@@ -75,7 +65,7 @@ class Engine:
                 content = src.read_text(encoding="utf-8")
                 rendered = self._jinja_env.from_string(content).render(context)
                 final_dst = dst.with_suffix("")
-                final_dst = _ensure_inside(temp_path, final_dst, label="Core destination")
+                final_dst = ensure_inside(temp_path, final_dst, label="Core destination")
                 # Force LF so shebang scripts work in Linux containers on Windows hosts.
                 final_dst.write_text(rendered, encoding="utf-8", newline="\n")
                 occupied.add(str(final_dst.relative_to(temp_path)))
@@ -96,7 +86,7 @@ class Engine:
         enabled_compose = optional_compose_modules if optional_compose_modules is not None else None
         grouped: dict[tuple[str, str], list[str]] = {}
         for manifest in manifests:
-            module_path = _ensure_inside(
+            module_path = ensure_inside(
                 self.modules_dir,
                 self.modules_dir / manifest.id,
                 label=f"Module '{manifest.id}' path",
@@ -105,11 +95,11 @@ class Engine:
                 if patch.optional_compose and enabled_compose is not None and manifest.id not in enabled_compose:
                     continue
                 target_rel = self._render_path(patch.target, context)
-                target = _ensure_inside(temp_path, temp_path / target_rel, label="Patch target")
+                target = ensure_inside(temp_path, temp_path / target_rel, label="Patch target")
                 if not target.exists():
                     raise GenerationError(f"Module '{manifest.id}': patch target {target} does not exist")
 
-                fragment_path = _ensure_inside(
+                fragment_path = ensure_inside(
                     module_path,
                     module_path / patch.fragment,
                     label=f"Module '{manifest.id}' fragment",
@@ -122,7 +112,7 @@ class Engine:
                 grouped.setdefault((target_rel, patch.marker), []).append(rendered_fragment)
 
         for (target_rel, marker), fragments in grouped.items():
-            target = _ensure_inside(temp_path, temp_path / target_rel, label="Patch target")
+            target = ensure_inside(temp_path, temp_path / target_rel, label="Patch target")
             content = target.read_text(encoding="utf-8")
             marker_regex = rf"^([ \t]*#[ \t]*{re.escape(marker)}[ \t]*)$"
             marker_hits = re.findall(marker_regex, content, flags=re.MULTILINE)
@@ -153,7 +143,7 @@ class Engine:
             files_dir = self.modules_dir / manifest.id / "files"
             if not files_dir.exists():
                 continue
-            files_dir = _ensure_inside(
+            files_dir = ensure_inside(
                 self.modules_dir / manifest.id,
                 files_dir,
                 label=f"Module '{manifest.id}' files",
@@ -163,10 +153,10 @@ class Engine:
                     continue
                 rel = src.relative_to(files_dir)
                 rendered_rel = self._render_path(str(rel), context)
-                dst = _ensure_inside(temp_path, temp_path / rendered_rel, label="Module destination")
+                dst = ensure_inside(temp_path, temp_path / rendered_rel, label="Module destination")
 
                 if src.suffix == ".jinja":
-                    final_dst = _ensure_inside(temp_path, dst.with_suffix(""), label="Module destination")
+                    final_dst = ensure_inside(temp_path, dst.with_suffix(""), label="Module destination")
                 else:
                     final_dst = dst
 
@@ -284,11 +274,8 @@ class Engine:
             module_id = pending.pop()
             if module_id in resolved:
                 continue
-            if not _MODULE_ID_RE.match(module_id):
-                raise GenerationError(
-                    f"Invalid module id '{module_id}': use lowercase letters, digits and hyphens only"
-                )
-            module_dir = _ensure_inside(self.modules_dir, self.modules_dir / module_id, label=f"Module '{module_id}'")
+            validate_module_id(module_id)
+            module_dir = ensure_inside(self.modules_dir, self.modules_dir / module_id, label=f"Module '{module_id}'")
             manifest_path = module_dir / "manifest.yaml"
             if not manifest_path.exists():
                 raise GenerationError(f"Unknown module '{module_id}': no manifest.yaml found")
@@ -319,26 +306,35 @@ class Engine:
 
     def _commit_temp_to_target(self, temp_path: Path, target_dir: Path) -> None:
         """Swap ``temp_path`` into ``target_dir`` without deleting the live tree first."""
-        backup: Path | None = None
-        if target_dir.exists():
-            backup = target_dir.with_name(f".{target_dir.name}_bak_{os.getpid()}")
-            if backup.exists():
-                if backup.is_dir():
-                    shutil.rmtree(backup)
-                else:
-                    backup.unlink()
-            os.replace(target_dir, backup)
+        lock_path = target_dir.parent / f".{target_dir.name}_gen.lock"
         try:
-            os.replace(temp_path, target_dir)
-        except Exception:
-            if backup is not None and backup.exists() and not target_dir.exists():
-                os.replace(backup, target_dir)
-            raise
-        if backup is not None and backup.exists():
-            if backup.is_dir():
-                shutil.rmtree(backup, ignore_errors=True)
-            else:
-                backup.unlink(missing_ok=True)
+            lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise GenerationError(
+                f"Another generate appears to be writing {target_dir} (lock {lock_path} exists)."
+            ) from exc
+        os.write(lock_fd, str(os.getpid()).encode())
+        os.close(lock_fd)
+        backup: Path | None = None
+        try:
+            if target_dir.exists():
+                backup = target_dir.with_name(f".{target_dir.name}_bak_{os.getpid()}")
+                if backup.exists():
+                    raise GenerationError(f"Backup path {backup} already exists; refuse concurrent overwrite.")
+                os.replace(target_dir, backup)
+            try:
+                os.replace(temp_path, target_dir)
+            except Exception:
+                if backup is not None and backup.exists() and not target_dir.exists():
+                    os.replace(backup, target_dir)
+                raise
+            if backup is not None and backup.exists():
+                if backup.is_dir():
+                    shutil.rmtree(backup, ignore_errors=True)
+                else:
+                    backup.unlink(missing_ok=True)
+        finally:
+            lock_path.unlink(missing_ok=True)
 
     def generate(
         self,
@@ -365,9 +361,8 @@ class Engine:
         expanded_ids = self._expand_module_ids(module_ids)
         manifests: list[ModuleManifest] = []
         for m_id in expanded_ids:
-            if not _MODULE_ID_RE.match(m_id):
-                raise GenerationError(f"Invalid module id '{m_id}': use lowercase letters, digits and hyphens only")
-            module_dir = _ensure_inside(self.modules_dir, self.modules_dir / m_id, label=f"Module '{m_id}'")
+            validate_module_id(m_id)
+            module_dir = ensure_inside(self.modules_dir, self.modules_dir / m_id, label=f"Module '{m_id}'")
             manifest_path = module_dir / "manifest.yaml"
             if not manifest_path.exists():
                 raise GenerationError(f"Module '{m_id}' does not have manifest.yaml")

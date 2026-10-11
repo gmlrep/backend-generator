@@ -135,6 +135,11 @@ uv run pre-commit run --all-files
 ```
 
 Override template paths with `BSG_CORE_TEMPLATE` / `BSG_MODULES_DIR` if needed.
+Custom template/module trees are treated as trusted code; Jinja rendering uses
+a sandboxed environment to block classic SSTI class-traversal payloads.
+
+The `opentelemetry` module ships an OTel Collector config that exports traces to
+the collector `debug` exporter only — wire a real backend before production.
 
 ## Generation flow
 

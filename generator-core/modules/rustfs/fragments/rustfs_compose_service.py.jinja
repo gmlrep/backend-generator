@@ -1,18 +1,18 @@
   rustfs:
-    image: rustfs/rustfs:latest
+    image: rustfs/rustfs:1.0.0-alpha.71
     command: ["/data"]
     environment:
-      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
-      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY in .env}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY in .env}
       - RUSTFS_ADDRESS=:9000
       - RUSTFS_CONSOLE_ADDRESS=:9001
-      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_ENABLE=${RUSTFS_CONSOLE_ENABLE:-false}
       - RUSTFS_OBS_LOGGER_LEVEL=error
       # Image runs as uid 10001; keep logs on the data volume (not /var/log).
       - RUSTFS_OBS_LOG_DIRECTORY=/data/logs
     ports:
       # Host 9010 avoids clashing with API_PORT (default 9000); containers use rustfs:9000.
+      # Console is disabled by default and not published; enable via RUSTFS_CONSOLE_ENABLE and add a port mapping if needed.
       - "${RUSTFS_API_PORT:-9010}:9000"
-      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
     volumes:
       - rustfsdata:/data

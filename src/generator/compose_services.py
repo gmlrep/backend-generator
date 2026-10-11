@@ -8,7 +8,7 @@ import click
 import questionary
 
 from generator.constants import COMPOSE_SERVICE_OPTIONS
-from generator.engine import GenerationError
+from generator.errors import GenerationError
 from generator.profiles import expand_requirements
 from generator.status import status
 

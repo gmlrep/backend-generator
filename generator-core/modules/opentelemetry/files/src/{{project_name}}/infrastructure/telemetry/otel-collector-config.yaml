@@ -1,3 +1,6 @@
+# Default scaffold: traces are exported to the collector's debug exporter only.
+# Replace/add a real backend exporter (OTLP, Jaeger, etc.) before relying on this
+# in staging/production.
 receivers:
   otlp:
     protocols:

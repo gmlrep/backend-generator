@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from generator.engine import GenerationError
+from generator.errors import GenerationError
 
 
 def generator_data_root() -> Path:

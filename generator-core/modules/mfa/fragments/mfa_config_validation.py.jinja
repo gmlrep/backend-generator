@@ -1,0 +1,5 @@
+        if self.is_production and not (self.mfa.ENCRYPTION_KEY or "").strip():
+            problems.append(
+                "MFA_ENCRYPTION_KEY must be set in non-local environments "
+                "(do not rely on JWT_SECRET for Fernet key derivation)."
+            )

@@ -7,9 +7,11 @@ requires:
 conflicts: []
 python_dependencies:
   - "prometheus-fastapi-instrumentator>=7.0"
+  - "prometheus-client>=0.21"
 env_example:
   - "PROMETHEUS_ENABLED=true"
   - "PROMETHEUS_ENDPOINT=/metrics"
+  - "METRICS_TOKEN="
   - "PROMETHEUS_PORT=9090"
 patches:
   - target: src/{{project_name}}/core/config.py

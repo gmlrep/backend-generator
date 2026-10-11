@@ -28,6 +28,15 @@ async def test_get_resource_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_resource_rejects_path_traversal() -> None:
+    with patch("aiohttp.ClientSession", return_value=MagicMock(closed=False, close=AsyncMock())):
+        client = AiohttpExternalApiClient(base_url="https://api.example.com")
+        with pytest.raises(ExternalApiError, match="Invalid resource id"):
+            await client.get_resource("../secret")
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_get_resource_error() -> None:
     response = AsyncMock()
     response.status = 500

@@ -1,10 +1,14 @@
+from typing import Annotated
+from urllib.parse import urlencode
+
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 
+from {{project_name}}.core.config import settings
 from {{project_name}}.core.container import Container
 from {{project_name}}.schema.auth import SignInResponse
-from {{project_name}}.schema.oauth import OAuthAuthorizeResponse
+from {{project_name}}.schema.oauth import OAuthAuthorizeResponse, OAuthExchangeRequest
 from {{project_name}}.services.oauth import OAuthService
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
@@ -30,12 +34,27 @@ async def oauth_login_redirect(
     return RedirectResponse(url)
 
 
-@router.get("/{provider}/callback", response_model=SignInResponse)
+@router.get("/{provider}/callback")
 @inject
 async def oauth_callback(
     provider: str,
     code: str = Query(...),
     state: str = Query(...),
     oauth_service: OAuthService = Depends(Provide[Container.oauth_service]),
+) -> SignInResponse | RedirectResponse:
+    tokens = await oauth_service.handle_callback(provider, code=code, state=state)
+    frontend = (settings.oauth.FRONTEND_REDIRECT_URL or "").strip()
+    if frontend:
+        exchange = await oauth_service.create_exchange_code(tokens)
+        sep = "&" if "?" in frontend else "?"
+        return RedirectResponse(f"{frontend}{sep}{urlencode({'code': exchange})}")
+    return tokens
+
+
+@router.post("/exchange", response_model=SignInResponse)
+@inject
+async def oauth_exchange(
+    payload: OAuthExchangeRequest,
+    oauth_service: Annotated[OAuthService, Depends(Provide[Container.oauth_service])],
 ) -> SignInResponse:
-    return await oauth_service.handle_callback(provider, code=code, state=state)
+    return await oauth_service.exchange_code(payload.code)

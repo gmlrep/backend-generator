@@ -5,6 +5,10 @@ class OAuthAuthorizeResponse(BaseSchema):
     authorize_url: str
 
 
+class OAuthExchangeRequest(BaseSchema):
+    code: str
+
+
 class FindOAuthAccount(BaseSchema):
     provider__eq: str | None = None
     provider_user_id__eq: str | None = None

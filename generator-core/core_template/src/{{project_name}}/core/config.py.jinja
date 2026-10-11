@@ -143,8 +143,17 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "test"
 
     @property
+    def is_local(self) -> bool:
+        return self.ENVIRONMENT == "local"
+
+    @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT in ("staging", "production")
+        """True when the process must enforce production-hardening checks.
+
+        Anything other than ``local`` / ``test`` (including ``dev``) requires
+        secure JWT/CORS/docs settings so default secrets cannot ship accidentally.
+        """
+        return self.ENVIRONMENT not in ("local", "test")
 
     def validate_for_api(self) -> None:
         problems: list[str] = []

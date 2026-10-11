@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import secrets
 from typing import Any
 from urllib.parse import urlencode
@@ -35,6 +38,16 @@ _PROVIDERS: dict[str, dict[str, str]] = {
         "scope": "read:user user:email",
     },
 }
+
+_STATE_TTL = 600
+_EXCHANGE_TTL = 120
+
+
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 
 class OAuthService:
@@ -72,7 +85,9 @@ class OAuthService:
         if not client_id:
             raise AuthError(detail=f"OAuth client id is not configured for {provider}")
         state = secrets.token_urlsafe(24)
-        await self.redis_client.set(f"oauth:state:{state}", provider, ttl=600)
+        verifier, challenge = _pkce_pair()
+        payload = json.dumps({"provider": provider, "verifier": verifier})
+        await self.redis_client.set(f"oauth:state:{state}", payload, ttl=_STATE_TTL)
         cfg = _PROVIDERS[provider]
         params = {
             "client_id": client_id,
@@ -80,6 +95,8 @@ class OAuthService:
             "response_type": "code",
             "scope": cfg["scope"],
             "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
         }
         if provider == "google":
             params["access_type"] = "online"
@@ -87,10 +104,18 @@ class OAuthService:
         return f"{cfg['authorize_url']}?{urlencode(params)}"
 
     async def handle_callback(self, provider: str, *, code: str, state: str) -> SignInResponse:
-        stored = await self.redis_client.get(f"oauth:state:{state}")
-        if stored != provider:
+        raw = await self.redis_client.getdel(f"oauth:state:{state}")
+        if not raw:
             raise AuthError(detail="Invalid OAuth state")
-        await self.redis_client.delete(f"oauth:state:{state}")
+        try:
+            stored = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AuthError(detail="Invalid OAuth state") from exc
+        if stored.get("provider") != provider:
+            raise AuthError(detail="Invalid OAuth state")
+        verifier = stored.get("verifier")
+        if not verifier:
+            raise AuthError(detail="Invalid OAuth state")
 
         client_id, client_secret = self._credentials(provider)
         cfg = _PROVIDERS[provider]
@@ -100,10 +125,27 @@ class OAuthService:
                 code=code,
                 redirect_uri=self._redirect_uri(provider),
                 grant_type="authorization_code",
+                code_verifier=verifier,
             )
         profile = await self._fetch_profile(provider, token)
         user = await self._upsert_user(provider, profile)
-        return await self.auth_service._issue_tokens(user)
+        return await self.auth_service.issue_tokens(user)
+
+    async def create_exchange_code(self, tokens: SignInResponse) -> str:
+        exchange = secrets.token_urlsafe(32)
+        payload = tokens.model_dump(mode="json")
+        await self.redis_client.set(f"oauth:exchange:{exchange}", json.dumps(payload), ttl=_EXCHANGE_TTL)
+        return exchange
+
+    async def exchange_code(self, code: str) -> SignInResponse:
+        raw = await self.redis_client.getdel(f"oauth:exchange:{code}")
+        if not raw:
+            raise AuthError(detail="Invalid or expired OAuth exchange code")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AuthError(detail="Invalid or expired OAuth exchange code") from exc
+        return SignInResponse.model_validate(data)
 
     async def _fetch_profile(self, provider: str, token: dict[str, Any]) -> dict[str, str]:
         access_token = token.get("access_token")
@@ -115,29 +157,44 @@ class OAuthService:
                 resp = await http.get(_PROVIDERS["google"]["userinfo_url"], headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
+                if data.get("email_verified") is not True:
+                    raise AuthError(detail="OAuth email is not verified")
+                email = data.get("email")
+                if not email:
+                    raise AuthError(detail="OAuth provider did not return an email")
                 return {
                     "provider_user_id": str(data["sub"]),
-                    "email": data.get("email") or f"{data['sub']}@google.oauth.local",
-                    "name": data.get("name") or data.get("email") or "Google User",
+                    "email": email,
+                    "name": data.get("name") or email,
                 }
             resp = await http.get(_PROVIDERS["github"]["userinfo_url"], headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            email = data.get("email")
-            if not email:
-                emails_resp = await http.get("https://api.github.com/user/emails", headers=headers)
-                if emails_resp.status_code == 200:
+            email = None
+            emails_resp = await http.get("https://api.github.com/user/emails", headers=headers)
+            if emails_resp.status_code == 200:
+                for item in emails_resp.json():
+                    if item.get("primary") and item.get("verified") and item.get("email"):
+                        email = item["email"]
+                        break
+                if not email:
                     for item in emails_resp.json():
-                        if item.get("primary") and item.get("email"):
+                        if item.get("verified") and item.get("email"):
                             email = item["email"]
                             break
+            if not email:
+                raise AuthError(detail="OAuth email is not verified")
             return {
                 "provider_user_id": str(data["id"]),
-                "email": email or f"{data['id']}@github.oauth.local",
-                "name": data.get("name") or data.get("login") or "GitHub User",
+                "email": email,
+                "name": data.get("name") or data.get("login") or email,
             }
 
     async def _upsert_user(self, provider: str, profile: dict[str, str]) -> User:
+        email = profile["email"]
+        if email.lower().endswith(".oauth.local"):
+            raise AuthError(detail="Synthetic OAuth emails are not allowed")
+
         existing = (
             await self.oauth_account_repository.read_by_options(
                 FindOAuthAccount(provider__eq=provider, provider_user_id__eq=profile["provider_user_id"])
@@ -149,25 +206,26 @@ class OAuthService:
                 raise AuthError(detail="Inactive user")
             return User.model_validate(user_model)
 
-        users = (await self.user_repository.read_by_options(FindUser(email__eq=profile["email"])))["founds"]
+        users = (await self.user_repository.read_by_options(FindUser(email__eq=email)))["founds"]
         if users:
-            user_model = users[0]
-        else:
-            user_model = UserModel(
-                email=profile["email"],
-                password=await get_password_hash(secrets.token_urlsafe(32)),
-                user_token=get_rand_hash(),
-                name=profile["name"],
-                is_active=True,
-                is_superuser=False,
+            raise AuthError(
+                detail="An account with this email already exists. Sign in and link OAuth from your account settings."
             )
-            user_model = await self.user_repository.create(user_model)
 
+        user_model = UserModel(
+            email=email,
+            password=await get_password_hash(secrets.token_urlsafe(32)),
+            user_token=get_rand_hash(),
+            name=profile["name"],
+            is_active=True,
+            is_superuser=False,
+        )
+        user_model = await self.user_repository.create(user_model)
         account = OAuthAccount(
             user_id=user_model.id,
             provider=provider,
             provider_user_id=profile["provider_user_id"],
-            email=profile["email"],
+            email=email,
         )
         await self.oauth_account_repository.create(account)
         return User.model_validate(user_model)

@@ -117,18 +117,22 @@ class CreateCommand(Command):
                 if m:
                     selected.add(m)
 
-        # Pull in transitive module dependencies so a hand-picked selection is valid.
-        selected, added = expand_requirements(selected, modules_path)
-        if added:
-            status(f"[modules] Required dependencies added: {', '.join(added)}")
+        try:
+            # Pull in transitive module dependencies so a hand-picked selection is valid.
+            selected, added = expand_requirements(selected, modules_path)
+            if added:
+                status(f"[modules] Required dependencies added: {', '.join(added)}")
 
-        # Optional Docker Compose sidecars for broker/worker stacks.
-        optional_compose, selected = resolve_compose_services(
-            selected,
-            modules_path,
-            compose_services=compose_services,
-            prompt=prompt_compose_services,
-        )
+            # Optional Docker Compose sidecars for broker/worker stacks.
+            optional_compose, selected = resolve_compose_services(
+                selected,
+                modules_path,
+                compose_services=compose_services,
+                prompt=prompt_compose_services,
+            )
+        except GenerationError as exc:
+            click.echo(f"Generation failed: {exc}", err=True)
+            sys.exit(2)
 
         target_dir = Path(target) if target else Path.cwd() / name
         validate_target_dir(target_dir, allow_overwrite)
