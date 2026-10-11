@@ -1,0 +1,18 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class OpenTelemetrySettings(BaseSettings):
+    """OpenTelemetry tracing settings (traces only; avoid double HTTP metrics with Prometheus)."""
+
+    model_config = _ENV_CONFIG
+
+    ENABLED: bool = Field(default=False, validation_alias="OTEL_ENABLED")
+    SERVICE_NAME: str = Field(default="{{project_name}}", validation_alias="OTEL_SERVICE_NAME")
+    EXPORTER_OTLP_ENDPOINT: str = Field(
+        default="http://localhost:4318",
+        validation_alias="OTEL_EXPORTER_OTLP_ENDPOINT",
+    )

@@ -1,0 +1,11 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class SchedulerSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    REDBEAT_KEY_PREFIX: str = Field(default="redbeat", validation_alias="REDBEAT_KEY_PREFIX")

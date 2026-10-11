@@ -1,0 +1,8 @@
+    oauth_account_repository = providers.Factory(OAuthAccountRepository, session_factory=db.provided.session)
+    oauth_service = providers.Factory(
+        OAuthService,
+        user_repository=user_repository,
+        oauth_account_repository=oauth_account_repository,
+        auth_service=auth_service,
+        redis_client=redis_client,
+    )

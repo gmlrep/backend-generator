@@ -1,0 +1,15 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class ExternalApiSettings(BaseSettings):
+    """Settings for the generic external HTTP API client."""
+
+    model_config = _ENV_CONFIG
+
+    BASE_URL: str = Field(default="https://api.example.com", validation_alias="EXTERNAL_API_BASE_URL")
+    API_KEY: str = Field(default="", validation_alias="EXTERNAL_API_API_KEY")
+    TIMEOUT_SECONDS: float = Field(default=10.0, validation_alias="EXTERNAL_API_TIMEOUT_SECONDS")

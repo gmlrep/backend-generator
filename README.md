@@ -61,7 +61,7 @@ Extension marker contracts: [docs/contracts.md](docs/contracts.md).
 ## Docker Compose sidecars
 
 Selecting `rabbitmq` / `kafka` as modules wires the **Python client** only
-(external broker). Broker containers, Flower, and Caddy are added on the
+(external broker). Broker containers, Flower, RustFS, and Caddy are added on the
 “Add Docker Compose services” step (or via `--compose-services`):
 
 | Option     | When available                         |
@@ -69,6 +69,7 @@ Selecting `rabbitmq` / `kafka` as modules wires the **Python client** only
 | `rabbitmq` | `rabbitmq` module selected             |
 | `kafka`    | `kafka` module selected                |
 | `flower`   | `celery` module selected               |
+| `rustfs`   | `s3` module selected                   |
 | `caddy`    | always                                 |
 
 ## Layout
@@ -86,18 +87,20 @@ tests/
 ## Modules
 
 ```
-redis ──► celery ──► flower, celery-beat, push-notifications
-redis ──► rate-limit ──► auth ──► mfa (also needs email)
+redis ──► redis-cache
+redis ──► celery ──► flower, celery-beat ──► scheduler-api (also needs auth)
+redis ──► rate-limit ──► auth ──► mfa, oauth
 auth ──► users-profiles ──► roles-permissions
 items ──► auth
 email ──► mfa, push-notifications
+s3 ──► rustfs (Compose checkbox)
 rabbitmq XOR kafka    (shared MessageBroker facade)
-openai, s3, prometheus, caddy, logging-elasticsearch  (standalone)
+openai, external-api, prometheus, opentelemetry, caddy, logging-elasticsearch
 ```
 
-Profiles: `minimal`, `auth-service`, `auth-mfa-service`, `items-service`,
-`users-service`, `notifications-service`, `celery-tools`, `observability`,
-`messaging`, `messaging-kafka`, `full`, plus interactive `custom`.
+Profiles: `minimal`, `auth-service`, `auth-mfa-service`, `auth-oauth-service`,
+`items-service`, `users-service`, `notifications-service`, `celery-tools`,
+`observability`, `messaging`, `messaging-kafka`, `full`, plus interactive `custom`.
 
 ## Production (Caddy + TLS)
 

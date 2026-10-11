@@ -49,7 +49,7 @@ def cli(ctx: click.Context) -> None:
 @click.option(
     "--compose-services",
     default="",
-    help="Comma-separated optional Compose sidecars: rabbitmq,kafka,flower,caddy "
+    help="Comma-separated optional Compose sidecars: rabbitmq,kafka,flower,rustfs,caddy "
     "(non-interactive). Interactive mode asks via checkbox.",
 )
 @click.option("--modules-dir", type=click.Path(exists=True, file_okay=False), default=None, envvar="BSG_MODULES_DIR")

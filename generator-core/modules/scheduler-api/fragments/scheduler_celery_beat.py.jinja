@@ -1,0 +1,3 @@
+    app.conf.beat_scheduler = "redbeat.RedBeatScheduler"
+    app.conf.redbeat_redis_url = settings.celery.BROKER_URL
+    app.conf.redbeat_key_prefix = settings.scheduler.REDBEAT_KEY_PREFIX

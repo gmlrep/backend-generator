@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import functools
+import hashlib
+import inspect
+import json
+from collections.abc import Awaitable, Callable
+from typing import Any, ParamSpec, TypeVar
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.infrastructure.redis.client import RedisClient
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _default_key_builder(prefix: str, func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    payload = {"args": args, "kwargs": kwargs}
+    digest = hashlib.sha256(json.dumps(payload, default=str, sort_keys=True).encode()).hexdigest()[:16]
+    return f"{prefix}:{func.__module__}.{func.__qualname__}:{digest}"
+
+
+def cached(
+    *,
+    ttl: int | None = None,
+    key_prefix: str | None = None,
+    redis_client: RedisClient | None = None,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+    """Cache an async function's return value in Redis as JSON."""
+
+    def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError("@cached only supports async callables")
+
+        @functools.wraps(func)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            client = redis_client
+            if client is None:
+                raise RuntimeError("Pass redis_client=... to @cached or inject RedisClient explicitly")
+            prefix = key_prefix if key_prefix is not None else settings.cache.KEY_PREFIX
+            cache_ttl = ttl if ttl is not None else settings.cache.DEFAULT_TTL
+            key = _default_key_builder(prefix, func, args, kwargs)
+            cached_value = await client.get_json(key)
+            if cached_value is not None:
+                return cached_value  # type: ignore[return-value]
+            result = await func(*args, **kwargs)
+            await client.set_json(key, result, ttl=cache_ttl)
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+async def cache_invalidate(redis_client: RedisClient, *keys: str) -> int:
+    """Delete one or more cache keys."""
+    return await redis_client.delete(*keys)

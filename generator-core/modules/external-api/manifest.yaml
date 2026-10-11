@@ -1,0 +1,32 @@
+manifest_version: "1"
+id: external-api
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules: []
+conflicts: []
+python_dependencies:
+  - "aiohttp>=3.10"
+env_example:
+  - "EXTERNAL_API_BASE_URL=https://api.example.com"
+  - "EXTERNAL_API_API_KEY="
+  - "EXTERNAL_API_TIMEOUT_SECONDS=10"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/external_api_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/external_api_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/external_api_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/external_api_container_services.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_STARTUP
+    fragment: fragments/external_api_lifespan_startup.py.jinja
+  - target: src/{{project_name}}/core/lifespan.py
+    marker: EXTENSION_LIFESPAN_SHUTDOWN
+    fragment: fragments/external_api_lifespan_shutdown.py.jinja

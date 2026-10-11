@@ -34,13 +34,18 @@ def write_env_files(target_dir: Path, module_ids: list[str], modules_path: Path,
         "LOG_LEVEL=INFO",
     ]
     # Module-owned settings (e.g. auth owns the JWT variables).
+    # Blank line between the core block and each module group.
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     context = {"project_name": project_name}
     for module_id in module_ids:
         manifest_path = modules_path / module_id / "manifest.yaml"
-        if manifest_path.exists():
-            for line in parse_manifest(manifest_path).env_example:
-                lines.append(env.from_string(line).render(context))
+        if not manifest_path.exists():
+            continue
+        module_lines = [env.from_string(line).render(context) for line in parse_manifest(manifest_path).env_example]
+        if not module_lines:
+            continue
+        lines.append("")
+        lines.extend(module_lines)
     content = "\n".join(lines) + "\n"
     (target_dir / ".env.example").write_text(content, encoding="utf-8", newline="\n")
     status("[env] .env.example created.")

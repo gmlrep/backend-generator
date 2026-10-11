@@ -1,0 +1,3 @@
+    external_client = getattr(app.state, "external_api_client", None)
+    if external_client is not None:
+        await external_client.aclose()

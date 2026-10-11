@@ -1,0 +1,7 @@
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./src/{{project_name}}/infrastructure/telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    expose:
+      - "4318"

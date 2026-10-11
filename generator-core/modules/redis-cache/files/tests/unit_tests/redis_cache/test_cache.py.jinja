@@ -1,0 +1,45 @@
+import pytest
+
+from {{project_name}}.infrastructure.redis.cache import cache_invalidate, cached
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, object] = {}
+
+    async def get_json(self, key: str):
+        return self.store.get(key)
+
+    async def set_json(self, key: str, value, ttl: int | None = None) -> None:
+        self.store[key] = value
+
+    async def delete(self, *keys: str) -> int:
+        deleted = 0
+        for key in keys:
+            if key in self.store:
+                del self.store[key]
+                deleted += 1
+        return deleted
+
+
+@pytest.mark.asyncio
+async def test_cached_stores_and_returns() -> None:
+    redis = FakeRedis()
+    calls = {"n": 0}
+
+    @cached(ttl=60, key_prefix="t", redis_client=redis)  # type: ignore[arg-type]
+    async def compute(x: int) -> dict[str, int]:
+        calls["n"] += 1
+        return {"x": x}
+
+    assert await compute(1) == {"x": 1}
+    assert await compute(1) == {"x": 1}
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_invalidate() -> None:
+    redis = FakeRedis()
+    redis.store["a"] = 1
+    assert await cache_invalidate(redis, "a") == 1  # type: ignore[arg-type]
+    assert "a" not in redis.store

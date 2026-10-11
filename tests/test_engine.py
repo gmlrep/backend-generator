@@ -977,3 +977,71 @@ def test_caddy_requires_nothing_but_is_standalone(tmp_path: Path, core_template:
     _engine(core_template, modules_dir).generate(target, "caddyonly", ["caddy"], core_version="1.0.0")
     assert (target / "Caddyfile").exists()
     assert (target / "docker-compose.prod.yml").exists()
+
+
+def test_generate_redis_cache_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withcache"
+    _engine(core_template, modules_dir).generate(target, "withcache", ["redis", "redis-cache"], core_version="1.0.0")
+    assert (target / "src/withcache/infrastructure/redis/cache.py").exists()
+    config = (target / "src/withcache/core/config.py").read_text(encoding="utf-8")
+    assert "CacheSettings" in config
+    assert "cache:" in config
+
+
+def test_generate_rustfs_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withrustfs"
+    _engine(core_template, modules_dir).generate(target, "withrustfs", ["s3", "rustfs"], core_version="1.0.0")
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "rustfs" in compose["services"]
+    assert compose["services"]["rustfs"]["image"].startswith("rustfs/rustfs:")
+    assert "rustfsdata" in compose["volumes"]
+    assert "S3_ENDPOINT_URL=http://rustfs:9000" in (target / "docker-compose.yml").read_text(encoding="utf-8")
+
+
+def test_generate_opentelemetry_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withotel"
+    _engine(core_template, modules_dir).generate(target, "withotel", ["opentelemetry"], core_version="1.0.0")
+    assert (target / "src/withotel/infrastructure/telemetry/setup.py").exists()
+    main_py = (target / "src/withotel/__main__.py").read_text(encoding="utf-8")
+    assert "setup_tracing" in main_py
+    compose = yaml.safe_load((target / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "otel-collector" in compose["services"]
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "opentelemetry-api" in pyproject
+
+
+def test_generate_external_api_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withext"
+    _engine(core_template, modules_dir).generate(target, "withext", ["external-api"], core_version="1.0.0")
+    assert (target / "src/withext/adapters/external_api/client.py").exists()
+    assert (target / "src/withext/services/external_api.py").exists()
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "aiohttp" in pyproject
+    # Module must not pull httpx; core/dev may still list httpx in dependency-groups only.
+    deps_block = pyproject.split("[dependency-groups]")[0]
+    assert "httpx" not in deps_block
+
+
+def test_generate_oauth_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withoauth"
+    _engine(core_template, modules_dir).generate(target, "withoauth", ["redis", "auth", "oauth"], core_version="1.0.0")
+    assert (target / "src/withoauth/services/oauth.py").exists()
+    assert (target / "src/withoauth/model/oauth_account.py").exists()
+    routes = (target / "src/withoauth/api/v1/routes.py").read_text(encoding="utf-8")
+    assert "oauth_router" in routes
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "authlib" in pyproject
+
+
+def test_generate_scheduler_api_module(tmp_path: Path, core_template: Path, modules_dir: Path) -> None:
+    target = tmp_path / "withsched"
+    _engine(core_template, modules_dir).generate(
+        target, "withsched", ["redis", "celery", "celery-beat", "auth", "scheduler-api"], core_version="1.0.0"
+    )
+    assert (target / "src/withsched/services/scheduler.py").exists()
+    app = (target / "src/withsched/infrastructure/celery/app.py").read_text(encoding="utf-8")
+    assert "redbeat.RedBeatScheduler" in app
+    routes = (target / "src/withsched/api/v1/routes.py").read_text(encoding="utf-8")
+    assert "scheduler_router" in routes
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert "celery-redbeat" in pyproject

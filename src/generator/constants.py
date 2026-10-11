@@ -19,7 +19,7 @@ VCS_PROMPT_CHOICES = (
     questionary.Choice(title="gitlab", value="gitlab"),
     questionary.Choice(title="None", value="none"),
 )
-PACKAGE_VERSION = "0.2.0"
+PACKAGE_VERSION = "0.3.0"
 # Sentinel returned by the custom-modules checkbox when the user presses Backspace.
 GO_BACK = object()
 # Optional Compose / infra add-ons. ``trigger`` is the module that must already
@@ -28,5 +28,6 @@ COMPOSE_SERVICE_OPTIONS = (
     ("rabbitmq", "rabbitmq", "RabbitMQ broker service"),
     ("kafka", "kafka", "Kafka broker service"),
     ("celery", "flower", "Flower (Celery monitoring UI)"),
+    ("s3", "rustfs", "RustFS (local S3-compatible storage)"),
     (None, "caddy", "Caddy (TLS reverse proxy / docker-compose.prod.yml)"),
 )

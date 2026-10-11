@@ -1,0 +1,41 @@
+manifest_version: "1"
+id: oauth
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - auth
+conflicts: []
+python_dependencies:
+  - "authlib>=1.3"
+  - "httpx>=0.27"
+env_example:
+  - "OAUTH_REDIRECT_BASE_URL=http://localhost:9000"
+  - "OAUTH_GOOGLE_ENABLED=false"
+  - "OAUTH_GOOGLE_CLIENT_ID="
+  - "OAUTH_GOOGLE_CLIENT_SECRET="
+  - "OAUTH_GITHUB_ENABLED=false"
+  - "OAUTH_GITHUB_CLIENT_ID="
+  - "OAUTH_GITHUB_CLIENT_SECRET="
+patches:
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/oauth_router.py.jinja
+  - target: src/{{project_name}}/model/__init__.py
+    marker: EXTENSION_MODELS
+    fragment: fragments/oauth_models.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/oauth_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/oauth_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/oauth_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/oauth_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/oauth_container_wiring.py.jinja

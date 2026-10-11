@@ -1,0 +1,14 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class CacheSettings(BaseSettings):
+    """Settings for the Redis cache helper."""
+
+    model_config = _ENV_CONFIG
+
+    DEFAULT_TTL: int = Field(default=300, validation_alias="CACHE_DEFAULT_TTL")
+    KEY_PREFIX: str = Field(default="cache", validation_alias="CACHE_KEY_PREFIX")

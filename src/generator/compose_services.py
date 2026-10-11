@@ -17,16 +17,16 @@ def compose_service_choices(selected: set[str]) -> list[questionary.Choice]:
     """Checkbox options for optional Compose sidecars based on selected modules.
 
     Caddy is always offered. Broker toggles (rabbitmq/kafka) appear when that
-    module is already selected. Flower appears when celery is selected and
-    flower is not already included.
+    module is already selected. Flower / RustFS appear when celery / s3 are
+    selected and the add-on is not already included.
     """
     choices: list[questionary.Choice] = []
     for trigger, value, label in COMPOSE_SERVICE_OPTIONS:
         if trigger is not None and trigger not in selected:
             continue
-        # Flower is an add-on module: hide once already selected.
+        # Add-on modules: hide once already selected.
         # Brokers keep showing (value == trigger). Caddy is always listed.
-        if value == "flower" and value in selected:
+        if value in {"flower", "rustfs"} and value in selected:
             continue
         checked = value == "caddy" and value in selected
         choices.append(questionary.Choice(title=label, value=value, checked=checked))
@@ -90,6 +90,10 @@ def resolve_compose_services(
         if "celery" not in updated:
             raise GenerationError("Compose service 'flower' requires the celery module")
         modules_to_add.append("flower")
+    if "rustfs" in chosen_set:
+        if "s3" not in updated:
+            raise GenerationError("Compose service 'rustfs' requires the s3 module")
+        modules_to_add.append("rustfs")
     if "caddy" in chosen_set:
         modules_to_add.append("caddy")
 

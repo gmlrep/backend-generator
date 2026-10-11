@@ -1,0 +1,7 @@
+    external_api_client = providers.Singleton(
+        AiohttpExternalApiClient,
+        base_url=settings.external_api.BASE_URL,
+        api_key=settings.external_api.API_KEY,
+        timeout_seconds=settings.external_api.TIMEOUT_SECONDS,
+    )
+    external_api_service = providers.Factory(ExternalApiService, client=external_api_client)

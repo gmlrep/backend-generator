@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from typing import Any
+
+from celery.schedules import schedule as celery_schedule
+from redbeat import RedBeatSchedulerEntry
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.exceptions import NotFoundError, ValidationError
+from {{project_name}}.infrastructure.celery.app import celery_app
+from {{project_name}}.schema.scheduler import ScheduleCreate, ScheduleRead, ScheduleUpdate, TaskRunResponse
+
+
+class SchedulerService:
+    """CRUD over RedBeat entries plus one-shot task trigger."""
+
+    def list_schedules(self) -> list[ScheduleRead]:
+        items: list[ScheduleRead] = []
+        for name, entry in (celery_app.conf.beat_schedule or {}).items():
+            sched = entry.get("schedule")
+            every = float(sched) if isinstance(sched, (int, float)) else None
+            items.append(
+                ScheduleRead(
+                    name=name,
+                    task=str(entry.get("task")),
+                    every_seconds=every,
+                    args=list(entry.get("args") or []),
+                    kwargs=dict(entry.get("kwargs") or {}),
+                    enabled=True,
+                    source="static",
+                )
+            )
+        try:
+            from redbeat.schedulers import get_redis
+
+            client = get_redis(celery_app)
+            for key in client.scan_iter(match=f"{settings.scheduler.REDBEAT_KEY_PREFIX}:*"):
+                key_str = key.decode() if isinstance(key, bytes) else str(key)
+                if ":definition" in key_str or ":stat" in key_str:
+                    continue
+                try:
+                    entry = RedBeatSchedulerEntry.from_key(key_str, app=celery_app)
+                except Exception:
+                    continue
+                every = float(entry.schedule.seconds) if hasattr(entry.schedule, "seconds") else None
+                items.append(
+                    ScheduleRead(
+                        name=entry.name,
+                        task=entry.task,
+                        every_seconds=every,
+                        args=list(entry.args or []),
+                        kwargs=dict(entry.kwargs or {}),
+                        enabled=bool(entry.enabled),
+                        source="redbeat",
+                    )
+                )
+        except Exception:
+            pass
+        return items
+
+    def create_schedule(self, payload: ScheduleCreate) -> ScheduleRead:
+        if payload.every_seconds <= 0:
+            raise ValidationError(detail="every_seconds must be positive")
+        entry = RedBeatSchedulerEntry(
+            name=payload.name,
+            task=payload.task,
+            schedule=celery_schedule(run_every=payload.every_seconds),
+            args=payload.args or [],
+            kwargs=payload.kwargs or {},
+            app=celery_app,
+            enabled=payload.enabled,
+        )
+        entry.save()
+        return ScheduleRead(
+            name=entry.name,
+            task=entry.task,
+            every_seconds=payload.every_seconds,
+            args=list(entry.args or []),
+            kwargs=dict(entry.kwargs or {}),
+            enabled=bool(entry.enabled),
+            source="redbeat",
+        )
+
+    def update_schedule(self, name: str, payload: ScheduleUpdate) -> ScheduleRead:
+        key = f"{settings.scheduler.REDBEAT_KEY_PREFIX}:{name}"
+        try:
+            entry = RedBeatSchedulerEntry.from_key(key, app=celery_app)
+        except KeyError as exc:
+            raise NotFoundError(detail=f"Schedule '{name}' not found") from exc
+        if payload.every_seconds is not None:
+            if payload.every_seconds <= 0:
+                raise ValidationError(detail="every_seconds must be positive")
+            entry.schedule = celery_schedule(run_every=payload.every_seconds)
+        if payload.args is not None:
+            entry.args = payload.args
+        if payload.kwargs is not None:
+            entry.kwargs = payload.kwargs
+        if payload.enabled is not None:
+            entry.enabled = payload.enabled
+        entry.save()
+        every = float(entry.schedule.seconds) if hasattr(entry.schedule, "seconds") else None
+        return ScheduleRead(
+            name=entry.name,
+            task=entry.task,
+            every_seconds=every,
+            args=list(entry.args or []),
+            kwargs=dict(entry.kwargs or {}),
+            enabled=bool(entry.enabled),
+            source="redbeat",
+        )
+
+    def delete_schedule(self, name: str) -> None:
+        key = f"{settings.scheduler.REDBEAT_KEY_PREFIX}:{name}"
+        try:
+            entry = RedBeatSchedulerEntry.from_key(key, app=celery_app)
+        except KeyError as exc:
+            raise NotFoundError(detail=f"Schedule '{name}' not found") from exc
+        entry.delete()
+
+    def list_tasks(self) -> list[str]:
+        return sorted(celery_app.tasks.keys())
+
+    def run_task(
+        self, name: str, *, args: list[Any] | None = None, kwargs: dict[str, Any] | None = None
+    ) -> TaskRunResponse:
+        result = celery_app.send_task(name, args=args or [], kwargs=kwargs or {})
+        return TaskRunResponse(task_id=result.id, task=name)

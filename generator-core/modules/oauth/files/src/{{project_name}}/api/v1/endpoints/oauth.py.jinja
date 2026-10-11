@@ -1,0 +1,41 @@
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import RedirectResponse
+
+from {{project_name}}.core.container import Container
+from {{project_name}}.schema.auth import SignInResponse
+from {{project_name}}.schema.oauth import OAuthAuthorizeResponse
+from {{project_name}}.services.oauth import OAuthService
+
+router = APIRouter(prefix="/oauth", tags=["oauth"])
+
+
+@router.get("/{provider}/login", response_model=OAuthAuthorizeResponse)
+@inject
+async def oauth_login(
+    provider: str,
+    oauth_service: OAuthService = Depends(Provide[Container.oauth_service]),
+) -> OAuthAuthorizeResponse:
+    url = await oauth_service.get_authorize_url(provider)
+    return OAuthAuthorizeResponse(authorize_url=url)
+
+
+@router.get("/{provider}/login/redirect")
+@inject
+async def oauth_login_redirect(
+    provider: str,
+    oauth_service: OAuthService = Depends(Provide[Container.oauth_service]),
+) -> RedirectResponse:
+    url = await oauth_service.get_authorize_url(provider)
+    return RedirectResponse(url)
+
+
+@router.get("/{provider}/callback", response_model=SignInResponse)
+@inject
+async def oauth_callback(
+    provider: str,
+    code: str = Query(...),
+    state: str = Query(...),
+    oauth_service: OAuthService = Depends(Provide[Container.oauth_service]),
+) -> SignInResponse:
+    return await oauth_service.handle_callback(provider, code=code, state=state)

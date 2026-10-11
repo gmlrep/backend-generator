@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import secrets
+from typing import Any
+from urllib.parse import urlencode
+
+import httpx
+from authlib.integrations.httpx_client import AsyncOAuth2Client
+
+from {{project_name}}.core.config import settings
+from {{project_name}}.core.exceptions import AuthError
+from {{project_name}}.core.security import get_password_hash
+from {{project_name}}.infrastructure.redis.client import RedisClient
+from {{project_name}}.model.oauth_account import OAuthAccount
+from {{project_name}}.model.user import User as UserModel
+from {{project_name}}.repository.oauth_account import OAuthAccountRepository
+from {{project_name}}.repository.user import UserRepository
+from {{project_name}}.schema.auth import SignInResponse
+from {{project_name}}.schema.oauth import FindOAuthAccount
+from {{project_name}}.schema.user import FindUser, User
+from {{project_name}}.services.auth import AuthService
+from {{project_name}}.util.hash import get_rand_hash
+
+_PROVIDERS: dict[str, dict[str, str]] = {
+    "google": {
+        "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "userinfo_url": "https://openidconnect.googleapis.com/v1/userinfo",
+        "scope": "openid email profile",
+    },
+    "github": {
+        "authorize_url": "https://github.com/login/oauth/authorize",
+        "token_url": "https://github.com/login/oauth/access_token",
+        "userinfo_url": "https://api.github.com/user",
+        "scope": "read:user user:email",
+    },
+}
+
+
+class OAuthService:
+    def __init__(
+        self,
+        *,
+        user_repository: UserRepository,
+        oauth_account_repository: OAuthAccountRepository,
+        auth_service: AuthService,
+        redis_client: RedisClient,
+    ) -> None:
+        self.user_repository = user_repository
+        self.oauth_account_repository = oauth_account_repository
+        self.auth_service = auth_service
+        self.redis_client = redis_client
+
+    def _credentials(self, provider: str) -> tuple[str, str]:
+        if provider == "google":
+            if not settings.oauth.GOOGLE_ENABLED:
+                raise AuthError(detail="Google OAuth is disabled")
+            return settings.oauth.GOOGLE_CLIENT_ID, settings.oauth.GOOGLE_CLIENT_SECRET
+        if provider == "github":
+            if not settings.oauth.GITHUB_ENABLED:
+                raise AuthError(detail="GitHub OAuth is disabled")
+            return settings.oauth.GITHUB_CLIENT_ID, settings.oauth.GITHUB_CLIENT_SECRET
+        raise AuthError(detail=f"Unknown OAuth provider '{provider}'")
+
+    def _redirect_uri(self, provider: str) -> str:
+        return f"{settings.oauth.REDIRECT_BASE_URL.rstrip('/')}/api/v1/oauth/{provider}/callback"
+
+    async def get_authorize_url(self, provider: str) -> str:
+        if provider not in _PROVIDERS:
+            raise AuthError(detail=f"Unknown OAuth provider '{provider}'")
+        client_id, _ = self._credentials(provider)
+        if not client_id:
+            raise AuthError(detail=f"OAuth client id is not configured for {provider}")
+        state = secrets.token_urlsafe(24)
+        await self.redis_client.set(f"oauth:state:{state}", provider, ttl=600)
+        cfg = _PROVIDERS[provider]
+        params = {
+            "client_id": client_id,
+            "redirect_uri": self._redirect_uri(provider),
+            "response_type": "code",
+            "scope": cfg["scope"],
+            "state": state,
+        }
+        if provider == "google":
+            params["access_type"] = "online"
+            params["include_granted_scopes"] = "true"
+        return f"{cfg['authorize_url']}?{urlencode(params)}"
+
+    async def handle_callback(self, provider: str, *, code: str, state: str) -> SignInResponse:
+        stored = await self.redis_client.get(f"oauth:state:{state}")
+        if stored != provider:
+            raise AuthError(detail="Invalid OAuth state")
+        await self.redis_client.delete(f"oauth:state:{state}")
+
+        client_id, client_secret = self._credentials(provider)
+        cfg = _PROVIDERS[provider]
+        async with AsyncOAuth2Client(client_id, client_secret) as client:
+            token = await client.fetch_token(
+                cfg["token_url"],
+                code=code,
+                redirect_uri=self._redirect_uri(provider),
+                grant_type="authorization_code",
+            )
+        profile = await self._fetch_profile(provider, token)
+        user = await self._upsert_user(provider, profile)
+        return await self.auth_service._issue_tokens(user)
+
+    async def _fetch_profile(self, provider: str, token: dict[str, Any]) -> dict[str, str]:
+        access_token = token.get("access_token")
+        if not access_token:
+            raise AuthError(detail="OAuth token exchange failed")
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with httpx.AsyncClient() as http:
+            if provider == "google":
+                resp = await http.get(_PROVIDERS["google"]["userinfo_url"], headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return {
+                    "provider_user_id": str(data["sub"]),
+                    "email": data.get("email") or f"{data['sub']}@google.oauth.local",
+                    "name": data.get("name") or data.get("email") or "Google User",
+                }
+            resp = await http.get(_PROVIDERS["github"]["userinfo_url"], headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            email = data.get("email")
+            if not email:
+                emails_resp = await http.get("https://api.github.com/user/emails", headers=headers)
+                if emails_resp.status_code == 200:
+                    for item in emails_resp.json():
+                        if item.get("primary") and item.get("email"):
+                            email = item["email"]
+                            break
+            return {
+                "provider_user_id": str(data["id"]),
+                "email": email or f"{data['id']}@github.oauth.local",
+                "name": data.get("name") or data.get("login") or "GitHub User",
+            }
+
+    async def _upsert_user(self, provider: str, profile: dict[str, str]) -> User:
+        existing = (
+            await self.oauth_account_repository.read_by_options(
+                FindOAuthAccount(provider__eq=provider, provider_user_id__eq=profile["provider_user_id"])
+            )
+        )["founds"]
+        if existing:
+            user_model = await self.user_repository.read_by_id(existing[0].user_id)
+            if user_model is None or not user_model.is_active:
+                raise AuthError(detail="Inactive user")
+            return User.model_validate(user_model)
+
+        users = (await self.user_repository.read_by_options(FindUser(email__eq=profile["email"])))["founds"]
+        if users:
+            user_model = users[0]
+        else:
+            user_model = UserModel(
+                email=profile["email"],
+                password=await get_password_hash(secrets.token_urlsafe(32)),
+                user_token=get_rand_hash(),
+                name=profile["name"],
+                is_active=True,
+                is_superuser=False,
+            )
+            user_model = await self.user_repository.create(user_model)
+
+        account = OAuthAccount(
+            user_id=user_model.id,
+            provider=provider,
+            provider_user_id=profile["provider_user_id"],
+            email=profile["email"],
+        )
+        await self.oauth_account_repository.create(account)
+        return User.model_validate(user_model)

@@ -1,0 +1,21 @@
+import pytest
+
+from {{project_name}}.services.external_api import ExternalApiService
+
+
+class FakeClient:
+    async def get_resource(self, resource_id: str) -> dict:
+        return {"id": resource_id}
+
+    async def create_resource(self, payload: dict) -> dict:
+        return {"ok": True, **payload}
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_external_api_service() -> None:
+    svc = ExternalApiService(client=FakeClient())  # type: ignore[arg-type]
+    assert await svc.get_resource("1") == {"id": "1"}
+    assert (await svc.create_resource({"name": "x"}))["ok"] is True

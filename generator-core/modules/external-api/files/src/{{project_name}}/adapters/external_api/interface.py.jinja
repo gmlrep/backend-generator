@@ -1,0 +1,11 @@
+from typing import Any, Protocol
+
+
+class ExternalApiClient(Protocol):
+    """Port for third-party REST calls (aiohttp-backed in production)."""
+
+    async def get_resource(self, resource_id: str) -> dict[str, Any]: ...
+
+    async def create_resource(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    async def aclose(self) -> None: ...

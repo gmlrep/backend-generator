@@ -1,0 +1,37 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class ScheduleCreate(BaseSchema):
+    name: str
+    task: str
+    every_seconds: float
+    args: list | None = None
+    kwargs: dict | None = None
+    enabled: bool = True
+
+
+class ScheduleUpdate(BaseSchema):
+    every_seconds: float | None = None
+    args: list | None = None
+    kwargs: dict | None = None
+    enabled: bool | None = None
+
+
+class ScheduleRead(BaseSchema):
+    name: str
+    task: str
+    every_seconds: float | None = None
+    args: list | None = None
+    kwargs: dict | None = None
+    enabled: bool = True
+    source: str = "redbeat"
+
+
+class TaskRunRequest(BaseSchema):
+    args: list | None = None
+    kwargs: dict | None = None
+
+
+class TaskRunResponse(BaseSchema):
+    task_id: str
+    task: str

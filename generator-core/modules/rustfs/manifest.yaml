@@ -1,0 +1,29 @@
+manifest_version: "1"
+id: rustfs
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - s3
+conflicts: []
+python_dependencies: []
+env_example:
+  - "RUSTFS_ACCESS_KEY=rustfsadmin"
+  - "RUSTFS_SECRET_KEY=rustfsadmin"
+  - "S3_ENDPOINT_URL=http://localhost:9010"
+  - "S3_ACCESS_KEY=rustfsadmin"
+  - "S3_SECRET_KEY=rustfsadmin"
+  - "S3_USE_SSL=false"
+patches:
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_SERVICES
+    fragment: fragments/rustfs_compose_service.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_VOLUMES
+    fragment: fragments/rustfs_compose_volume.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_ENV
+    fragment: fragments/rustfs_compose_env.py.jinja
+  - target: docker-compose.yml
+    marker: EXTENSION_COMPOSE_DEPENDS_ON
+    fragment: fragments/rustfs_compose_depends.py.jinja

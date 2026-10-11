@@ -1,0 +1,19 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+_ENV_CONFIG = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
+
+
+class OAuthSettings(BaseSettings):
+    """OAuth / OIDC provider settings (Google + GitHub)."""
+
+    model_config = _ENV_CONFIG
+
+    REDIRECT_BASE_URL: str = Field(default="http://localhost:9000", validation_alias="OAUTH_REDIRECT_BASE_URL")
+    GOOGLE_ENABLED: bool = Field(default=False, validation_alias="OAUTH_GOOGLE_ENABLED")
+    GOOGLE_CLIENT_ID: str = Field(default="", validation_alias="OAUTH_GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET: str = Field(default="", validation_alias="OAUTH_GOOGLE_CLIENT_SECRET")
+    GITHUB_ENABLED: bool = Field(default=False, validation_alias="OAUTH_GITHUB_ENABLED")
+    GITHUB_CLIENT_ID: str = Field(default="", validation_alias="OAUTH_GITHUB_CLIENT_ID")
+    GITHUB_CLIENT_SECRET: str = Field(default="", validation_alias="OAUTH_GITHUB_CLIENT_SECRET")

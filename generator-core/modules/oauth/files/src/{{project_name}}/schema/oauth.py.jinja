@@ -1,0 +1,10 @@
+from {{project_name}}.schema.base import BaseSchema
+
+
+class OAuthAuthorizeResponse(BaseSchema):
+    authorize_url: str
+
+
+class FindOAuthAccount(BaseSchema):
+    provider__eq: str | None = None
+    provider_user_id__eq: str | None = None

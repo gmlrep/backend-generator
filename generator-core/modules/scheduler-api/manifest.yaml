@@ -1,0 +1,35 @@
+manifest_version: "1"
+id: scheduler-api
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - celery-beat
+    - auth
+conflicts: []
+python_dependencies:
+  - "celery-redbeat>=2.2"
+env_example:
+  - "REDBEAT_KEY_PREFIX=redbeat"
+patches:
+  - target: src/{{project_name}}/infrastructure/celery/app.py
+    marker: EXTENSION_CELERY_BEAT
+    fragment: fragments/scheduler_celery_beat.py.jinja
+  - target: src/{{project_name}}/api/v1/routes.py
+    marker: EXTENSION_ROUTERS
+    fragment: fragments/scheduler_router.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/scheduler_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/scheduler_config_settings.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_IMPORTS
+    fragment: fragments/scheduler_container_imports.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_SERVICES
+    fragment: fragments/scheduler_container_services.py.jinja
+  - target: src/{{project_name}}/core/container.py
+    marker: EXTENSION_CONTAINER_WIRING
+    fragment: fragments/scheduler_container_wiring.py.jinja

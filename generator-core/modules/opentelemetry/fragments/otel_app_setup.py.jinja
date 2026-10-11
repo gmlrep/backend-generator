@@ -1,0 +1,6 @@
+        if settings.otel.ENABLED:
+            self.app.state.tracer_provider = setup_tracing(
+                self.app,
+                service_name=settings.otel.SERVICE_NAME,
+                otlp_endpoint=settings.otel.EXPORTER_OTLP_ENDPOINT,
+            )

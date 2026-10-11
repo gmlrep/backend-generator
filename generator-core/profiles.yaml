@@ -10,6 +10,10 @@ profiles:
     - auth
     - email
     - mfa
+  auth-oauth-service:
+    - redis
+    - auth
+    - oauth
   users-service:
     - redis
     - auth
@@ -27,24 +31,30 @@ profiles:
   observability:
     - prometheus
     - logging-elasticsearch
+    - opentelemetry
   messaging:
     - rabbitmq
   messaging-kafka:
     - kafka
   full:
     - redis
+    - redis-cache
     - celery
     - celery-beat
+    - scheduler-api
     - rate-limit
     - auth
+    - oauth
     - email
     - mfa
     - logging-elasticsearch
     - openai
     - s3
+    - external-api
     - push-notifications
     - users-profiles
     - roles-permissions
     - prometheus
+    - opentelemetry
     - caddy
     - rabbitmq

@@ -94,6 +94,9 @@ def test_cli_env_example(tmp_path: Path, core_template: Path, modules_dir: Path,
     assert "JWT_ALGORITHM" in env
     # List settings must use JSON syntax so pydantic-settings can decode them.
     assert 'CORS_ALLOWED_ORIGINS=["*"]' in env
+    # Module env groups are separated by a blank line from core and each other.
+    assert "\n\nREDIS_HOST=" in env
+    assert "\n\nJWT_SECRET=" in env
     # .env is seeded as a copy of .env.example so docker-compose can load it.
     dotenv = (tmp_path / "wenv" / ".env").read_text(encoding="utf-8")
     assert dotenv == env
@@ -176,6 +179,23 @@ def test_cli_compose_services_flower_with_celery(
     compose = (tmp_path / "withflower" / "docker-compose.yml").read_text(encoding="utf-8")
     assert "flower:" in compose
     assert (tmp_path / "withflower" / "src" / "withflower" / "infrastructure" / "celery" / "app.py").exists()
+
+
+def test_cli_compose_services_rustfs_with_s3(
+    tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(
+        tmp_path,
+        core_template,
+        modules_dir,
+        ["--profile", "minimal", "--modules", "s3", "--compose-services", "rustfs", "--non-interactive"],
+        "withrustfs",
+    )
+    assert result.exit_code == 0, result.output
+    compose = (tmp_path / "withrustfs" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "rustfs:" in compose
+    assert "rustfsdata:" in compose
 
 
 def test_cli_compose_services_kafka_flag(tmp_path: Path, core_template: Path, modules_dir: Path, monkeypatch) -> None:
@@ -433,10 +453,17 @@ def test_compose_service_choices_includes_brokers_when_selected() -> None:
     assert "caddy" in values
     assert "rabbitmq" not in values
 
-    values = {c.value for c in compose_service_choices({"celery", "flower", "caddy"})}
-    assert "flower" not in values
+    values = {c.value for c in compose_service_choices({"s3"})}
+    assert "rustfs" in values
     assert "caddy" in values
-    caddy_choice = next(c for c in compose_service_choices({"celery", "flower", "caddy"}) if c.value == "caddy")
+
+    values = {c.value for c in compose_service_choices({"celery", "flower", "caddy", "s3", "rustfs"})}
+    assert "flower" not in values
+    assert "rustfs" not in values
+    assert "caddy" in values
+    caddy_choice = next(
+        c for c in compose_service_choices({"celery", "flower", "caddy", "s3", "rustfs"}) if c.value == "caddy"
+    )
     assert caddy_choice.checked is True
 
     bare = {c.value for c in compose_service_choices(set())}

@@ -1,0 +1,6 @@
+from {{project_name}}.model.oauth_account import OAuthAccount
+from {{project_name}}.repository.base import BaseRepository
+
+
+class OAuthAccountRepository(BaseRepository[OAuthAccount]):
+    model = OAuthAccount

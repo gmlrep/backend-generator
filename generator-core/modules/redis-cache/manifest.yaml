@@ -1,0 +1,19 @@
+manifest_version: "1"
+id: redis-cache
+version: "1.0.0"
+requires:
+  core: ">=1.0.0,<2.0.0"
+  modules:
+    - redis
+conflicts: []
+python_dependencies: []
+env_example:
+  - "CACHE_DEFAULT_TTL=300"
+  - "CACHE_KEY_PREFIX=cache"
+patches:
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_CONFIG_IMPORTS
+    fragment: fragments/redis_cache_config_imports.py.jinja
+  - target: src/{{project_name}}/core/config.py
+    marker: EXTENSION_SETTINGS
+    fragment: fragments/redis_cache_config_settings.py.jinja

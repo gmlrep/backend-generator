@@ -1,0 +1,84 @@
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends
+
+from {{project_name}}.core.container import Container
+from {{project_name}}.core.dependencies import get_current_super_user
+from {{project_name}}.schema.scheduler import (
+    ScheduleCreate,
+    ScheduleRead,
+    ScheduleUpdate,
+    TaskRunRequest,
+    TaskRunResponse,
+)
+from {{project_name}}.schema.user import User
+from {{project_name}}.services.scheduler import SchedulerService
+
+router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+
+
+@router.get("/schedules", response_model=list[ScheduleRead])
+@inject
+async def list_schedules(
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> list[ScheduleRead]:
+    _ = current_user
+    return service.list_schedules()
+
+
+@router.post("/schedules", response_model=ScheduleRead)
+@inject
+async def create_schedule(
+    payload: ScheduleCreate,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> ScheduleRead:
+    _ = current_user
+    return service.create_schedule(payload)
+
+
+@router.patch("/schedules/{name}", response_model=ScheduleRead)
+@inject
+async def update_schedule(
+    name: str,
+    payload: ScheduleUpdate,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> ScheduleRead:
+    _ = current_user
+    return service.update_schedule(name, payload)
+
+
+@router.delete("/schedules/{name}", status_code=204)
+@inject
+async def delete_schedule(
+    name: str,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> None:
+    _ = current_user
+    service.delete_schedule(name)
+
+
+@router.get("/tasks", response_model=list[str])
+@inject
+async def list_tasks(
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> list[str]:
+    _ = current_user
+    return service.list_tasks()
+
+
+@router.post("/tasks/{name}/run", response_model=TaskRunResponse)
+@inject
+async def run_task(
+    name: str,
+    payload: TaskRunRequest,
+    current_user: Annotated[User, Depends(get_current_super_user)],
+    service: Annotated[SchedulerService, Depends(Provide[Container.scheduler_service])],
+) -> TaskRunResponse:
+    _ = current_user
+    return service.run_task(name, args=payload.args, kwargs=payload.kwargs)
